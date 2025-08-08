@@ -1,0 +1,51 @@
+{
+  "updateConfig": {
+    "apiEndpoint": "https://your-api-gateway-url.amazonaws.com/Prod/app-updates",
+    "checkInterval": 86400000,
+    "criticalCheckInterval": 14400000,
+    "autoUpdate": {
+      "enabled": true,
+      "wifiOnly": true,
+      "criticalOnly": false
+    },
+    "components": {
+      "screens": {
+        "enabled": true,
+        "priority": 1
+      },
+      "components": {
+        "enabled": true,
+        "priority": 2
+      },
+      "services": {
+        "enabled": true,
+        "priority": 3
+      },
+      "navigation": {
+        "enabled": true,
+        "priority": 4
+      },
+      "utils": {
+        "enabled": true,
+        "priority": 5
+      },
+      "constants": {
+        "enabled": true,
+        "priority": 6
+      }
+    },
+    "limits": {
+      "maxUpdateSize": 104857600,
+      "maxCacheSize": 524288000,
+      "downloadTimeout": 300000,
+      "checkTimeout": 30000,
+      "maxRetries": 3,
+      "retryDelay": 2000
+    },
+    "notifications": {
+      "showForNonCritical": true,
+      "autoShowManager": false,
+      "delayBeforeShow": 2000
+    }
+  }
+}

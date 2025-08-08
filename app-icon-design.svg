@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background gradient -->
+  <defs>
+    <linearGradient id="backgroundGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#2c3e50;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#34495e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="letterGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ecf0f1;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d4af37;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#f1c40f;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="512" cy="512" r="480" fill="url(#backgroundGradient)" stroke="none"/>
+  
+  <!-- Subtle inner shadow -->
+  <circle cx="512" cy="512" r="480" fill="none" stroke="rgba(0,0,0,0.1)" stroke-width="8"/>
+  
+  <!-- Main "M" letter -->
+  <text x="512" y="620" font-family="serif" font-size="420" font-weight="bold" 
+        text-anchor="middle" fill="url(#letterGradient)" 
+        style="text-shadow: 0 4px 8px rgba(0,0,0,0.3);">M</text>
+  
+  <!-- Decorative underline -->
+  <rect x="280" y="650" width="464" height="8" rx="4" fill="url(#accentGradient)"/>
+  
+  <!-- Small tailoring elements -->
+  <!-- Needle and thread icon -->
+  <g transform="translate(512, 280)">
+    <!-- Needle -->
+    <rect x="-2" y="-60" width="4" height="120" rx="2" fill="url(#accentGradient)"/>
+    <circle cx="0" cy="-50" r="8" fill="none" stroke="url(#accentGradient)" stroke-width="3"/>
+    
+    <!-- Thread -->
+    <path d="M 0,-40 Q 20,-20 15,0 Q 10,20 -5,25" 
+          stroke="url(#accentGradient)" stroke-width="2" fill="none" 
+          stroke-linecap="round"/>
+  </g>
+  
+  <!-- Small scissors icon -->
+  <g transform="translate(380, 320) scale(0.8)">
+    <circle cx="0" cy="0" r="12" fill="none" stroke="url(#accentGradient)" stroke-width="2"/>
+    <circle cx="20" cy="0" r="12" fill="none" stroke="url(#accentGradient)" stroke-width="2"/>
+    <line x1="12" y1="0" x2="35" y2="25" stroke="url(#accentGradient)" stroke-width="2" stroke-linecap="round"/>
+    <line x1="8" y1="0" x2="35" y2="25" stroke="url(#accentGradient)" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Small measuring tape icon -->
+  <g transform="translate(644, 320) scale(0.8)">
+    <rect x="-15" y="-8" width="30" height="16" rx="8" fill="none" stroke="url(#accentGradient)" stroke-width="2"/>
+    <line x1="-10" y1="0" x2="10" y2="0" stroke="url(#accentGradient)" stroke-width="1"/>
+    <line x1="-5" y1="-4" x2="-5" y2="4" stroke="url(#accentGradient)" stroke-width="1"/>
+    <line x1="0" y1="-4" x2="0" y2="4" stroke="url(#accentGradient)" stroke-width="1"/>
+    <line x1="5" y1="-4" x2="5" y2="4" stroke="url(#accentGradient)" stroke-width="1"/>
+  </g>
+</svg>
