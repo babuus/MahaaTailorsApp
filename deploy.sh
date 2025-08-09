@@ -37,27 +37,19 @@ if [[ -n "$API_ENDPOINT" && "$API_ENDPOINT" != "None" ]]; then
     # Update the API endpoint based on environment
     if [[ "$ENVIRONMENT" == "prod" ]]; then
       # For production, update the production URL (after the colon)
-      sed -i.tmp "s|: 'https://.*\.amazonaws\.com/Prod'|: '${API_ENDPOINT}'|g" src/config/environment.ts
+      sed -i.tmp "s|: 'https://[^']*\.amazonaws\.com/Prod'|: '${API_ENDPOINT}'|g" src/config/environment.ts
       echo "✅ Updated production API endpoint to: ${API_ENDPOINT}"
     else
       # For development, update the development URL (after the question mark)
-      sed -i.tmp "s|? 'https://.*\.amazonaws\.com/Prod'|? '${API_ENDPOINT}'|g" src/config/environment.ts
+      sed -i.tmp "s|? 'https://[^']*\.amazonaws\.com/Prod'|? '${API_ENDPOINT}'|g" src/config/environment.ts
       echo "✅ Updated development API endpoint to: ${API_ENDPOINT}"
     fi
     
     rm -f src/config/environment.ts.tmp
   fi
   
-  # Also update the update service if it exists
-  if [[ -f "src/services/updateService.ts" ]]; then
-    # Create a backup
-    cp src/services/updateService.ts src/services/updateService.ts.bak
-    
-    # Update the API endpoint
-    sed -i.tmp "s|this\.baseUrl = '.*'|this.baseUrl = '${API_ENDPOINT}/app-updates'|g" src/services/updateService.ts
-    rm -f src/services/updateService.ts.tmp
-    echo "✅ Updated mobile app update service endpoint"
-  fi
+  # UpdateService now uses environment configuration automatically
+  echo "✅ UpdateService will use environment-based API endpoint automatically"
 else
   echo "⚠️  Warning: Could not get API endpoint. Mobile app will use default configuration."
 fi

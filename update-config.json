@@ -1,6 +1,6 @@
 {
   "updateConfig": {
-    "apiEndpoint": "https://your-api-gateway-url.amazonaws.com/Prod/app-updates",
+    "apiEndpoint": "https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod/app-updates",
     "checkInterval": 86400000,
     "criticalCheckInterval": 14400000,
     "autoUpdate": {

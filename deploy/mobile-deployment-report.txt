@@ -1,13 +1,13 @@
 Mahaa Tailors Mobile App Deployment Report
 ==========================================
 
-Deployment Date: Sat Aug  9 08:34:35 PM IST 2025
-Environment: dev
+Deployment Date: Sat Aug  9 08:56:40 PM IST 2025
+Environment: prod
 Platform: android
 Build Mode: release
 App Version: 0.0.1
-API Endpoint: https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod
-S3 Bucket: mahaatailors-dev
+API Endpoint: https://j4wtfrpivd.execute-api.ap-south-1.amazonaws.com/Prod
+S3 Bucket: mahaatailors-prod
 
 Build Artifacts:
 - Android APK: deploy/android/app-release.apk (53M)
@@ -15,8 +15,8 @@ Build Artifacts:
 
 Download URLs:
 
-- Release APK: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-v0.0.1-20250809-203410-release.apk
-- Latest Release: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-latest-release.apk
+- Release APK: https://mahaatailors-prod.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-v0.0.1-20250809-205622-release.apk
+- Latest Release: https://mahaatailors-prod.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-latest-release.apk
 
 Next Steps:
 - Share APK download link with users

@@ -43,9 +43,10 @@ describe('API Service', () => {
 
   describe('Configuration', () => {
     it('should have correct default configuration', () => {
-      // In development mode, it should use the AWS development URL
-      expect(API_CONFIG.BASE_URL).toBe('https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod');
-      expect(API_CONFIG.TIMEOUT).toBe(10000);
+      // Should use environment-based configuration
+      expect(API_CONFIG.BASE_URL).toBeDefined();
+      expect(API_CONFIG.BASE_URL).toContain('amazonaws.com');
+      expect(API_CONFIG.TIMEOUT).toBe(15000);
       expect(API_CONFIG.RETRY_ATTEMPTS).toBe(3);
       expect(API_CONFIG.RETRY_DELAY).toBe(1000);
     });

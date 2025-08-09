@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import axios from 'axios';
 import RNFS from 'react-native-fs';
 import { unzip } from 'react-native-zip-archive';
+import { ENV_CONFIG } from '../config/environment';
 
 export interface UpdateInfo {
   version: string;
@@ -36,8 +37,8 @@ class UpdateService {
   private updateInProgress: boolean = false;
 
   constructor() {
-    // Replace with your actual API endpoint
-    this.baseUrl = 'https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod/app-updates';
+    // Use environment-based API endpoint
+    this.baseUrl = `${ENV_CONFIG.API_BASE_URL}/app-updates`;
     this.currentVersion = '0.0.1'; // This should come from app.json or package.json
     this.platform = Platform.OS;
   }

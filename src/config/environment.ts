@@ -9,12 +9,15 @@ export interface EnvironmentConfig {
   RETRY_DELAY: number;
 }
 
+// Environment detection - will be updated by deploy script
+const DEPLOYMENT_ENVIRONMENT = 'development'; // This will be replaced by deploy script
+
 // Default configuration - will be updated by deploy script
 export const ENV_CONFIG: EnvironmentConfig = {
-  API_BASE_URL: __DEV__ 
+  API_BASE_URL: DEPLOYMENT_ENVIRONMENT === 'development'
     ? 'https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod' // Development
     : 'https://j4wtfrpivd.execute-api.ap-south-1.amazonaws.com/Prod', // Production
-  ENVIRONMENT: __DEV__ ? 'development' : 'production',
+  ENVIRONMENT: DEPLOYMENT_ENVIRONMENT === 'development' ? 'development' : 'production',
   TIMEOUT: 15000, // Increased timeout for mobile networks
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000,
