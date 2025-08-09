@@ -11,6 +11,8 @@ Globals:
       MaxAge: "'600'"
     EndpointConfiguration:
       Type: REGIONAL
+    OpenApiVersion: 3.0.1
+    Name: !Sub "${ProjectName}-API-${Environment}"
 
 Parameters:
   ProjectName:
@@ -113,6 +115,20 @@ Resources:
   # Note: Using frontend bucket for mobile app updates instead of separate bucket
   # The UPDATES_BUCKET environment variable will be set to the frontend bucket name
 
+  # Custom API Gateway to remove /Prod stage prefix
+  ApiGatewayApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub "${ProjectName}-API-${Environment}"
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+        AllowOrigin: "'*'"
+        MaxAge: "'600'"
+      EndpointConfiguration:
+        Type: REGIONAL
+
   # Lambda Functions with SAM Events (handles CORS automatically)
   CustomerManagementLambda:
     Type: AWS::Serverless::Function
@@ -139,56 +155,67 @@ Resources:
         GetCustomers:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers
             Method: get
         AddCustomer:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers
             Method: post
         UpdateCustomer:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}
             Method: put
         DeleteCustomer:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}
             Method: delete
         CheckCustomerExists:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/exists
             Method: get
         CustomersOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers
             Method: options
         CustomerExistsOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/exists
             Method: options
         CustomerIdOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}
             Method: options
         GetCustomerMeasurements:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}/measurements
             Method: get
         SaveCustomerMeasurement:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}/measurements
             Method: post
         DeleteCustomerMeasurement:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}/measurements/{measurementId}
             Method: delete
 
@@ -211,31 +238,37 @@ Resources:
         GetMeasurementConfigs:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /measurement-configs
             Method: get
         AddMeasurementConfig:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /measurement-configs
             Method: post
         UpdateMeasurementConfig:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /measurement-configs/{id}
             Method: put
         DeleteMeasurementConfig:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /measurement-configs/{id}
             Method: delete
         MeasurementConfigsOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /measurement-configs
             Method: options
         MeasurementConfigIdOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /measurement-configs/{id}
             Method: options
 
@@ -258,31 +291,37 @@ Resources:
         GetServices:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /services
             Method: get
         AddService:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /services
             Method: post
         UpdateService:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /services/{id}
             Method: put
         DeleteService:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /services/{id}
             Method: delete
         ServicesOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /services
             Method: options
         ServiceIdOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /services/{id}
             Method: options
 
@@ -308,41 +347,49 @@ Resources:
         GetBills:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /bills
             Method: get
         AddBill:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /bills
             Method: post
         UpdateBill:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /bills/{id}
             Method: put
         DeleteBill:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /bills/{id}
             Method: delete
         BillsOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /bills
             Method: options
         BillIdOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /bills/{id}
             Method: options
         CustomerMeasurementsOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}/measurements
             Method: options
         CustomerMeasurementIdOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}/measurements/{measurementId}
             Method: options
 
@@ -375,28 +422,32 @@ Resources:
         CheckUpdates:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /app-updates/check-updates
             Method: get
         DownloadUpdate:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /app-updates/download-update
             Method: get
         RegisterVersion:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /app-updates/register-version
             Method: post
         AppUpdatesOptions:
           Type: Api
           Properties:
+            RestApiId: !Ref ApiGatewayApi
             Path: /app-updates/{proxy+}
             Method: options
 
 Outputs:
   ApiEndpoint:
     Description: API Gateway endpoint URL
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWSRegion}.amazonaws.com/Prod"
+    Value: !Sub "https://${ApiGatewayApi}.execute-api.${AWSRegion}.amazonaws.com/${Environment}"
   ApiEndpointWithStage:
     Description: API Gateway endpoint URL with stage
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWSRegion}.amazonaws.com/Prod"
+    Value: !Sub "https://${ApiGatewayApi}.execute-api.${AWSRegion}.amazonaws.com/${Environment}"
