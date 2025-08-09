@@ -34,12 +34,16 @@ if [[ -n "$API_ENDPOINT" && "$API_ENDPOINT" != "None" ]]; then
     # Create a backup
     cp src/config/environment.ts src/config/environment.ts.bak
     
-    # Update the API endpoint based on environment
+    # Update the DEPLOYMENT_ENVIRONMENT variable
     if [[ "$ENVIRONMENT" == "prod" ]]; then
+      sed -i.tmp "s|const DEPLOYMENT_ENVIRONMENT = '[^']*'|const DEPLOYMENT_ENVIRONMENT = 'production'|g" src/config/environment.ts
+      echo "✅ Updated DEPLOYMENT_ENVIRONMENT to: production"
       # For production, update the production URL (after the colon)
       sed -i.tmp "s|: 'https://[^']*\.amazonaws\.com/prod'|: '${API_ENDPOINT}'|g" src/config/environment.ts
       echo "✅ Updated production API endpoint to: ${API_ENDPOINT}"
     else
+      sed -i.tmp "s|const DEPLOYMENT_ENVIRONMENT = '[^']*'|const DEPLOYMENT_ENVIRONMENT = 'development'|g" src/config/environment.ts
+      echo "✅ Updated DEPLOYMENT_ENVIRONMENT to: development"
       # For development, update the development URL (after the question mark)
       sed -i.tmp "s|? 'https://[^']*\.amazonaws\.com/dev'|? '${API_ENDPOINT}'|g" src/config/environment.ts
       echo "✅ Updated development API endpoint to: ${API_ENDPOINT}"
@@ -48,7 +52,21 @@ if [[ -n "$API_ENDPOINT" && "$API_ENDPOINT" != "None" ]]; then
     rm -f src/config/environment.ts.tmp
   fi
   
-  # UpdateService now uses environment configuration automatically
+  # Update the update-config.json with the correct app-updates endpoint
+  if [[ -f "update-config.json" ]]; then
+    cp update-config.json update-config.json.bak
+    
+    if [[ "$ENVIRONMENT" == "prod" ]]; then
+      sed -i.tmp "s|\"apiEndpoint\": \"https://[^\"]*amazonaws\.com/[^/]*/app-updates\"|\"apiEndpoint\": \"${API_ENDPOINT}/app-updates\"|g" update-config.json
+      echo "✅ Updated app-updates endpoint for production: ${API_ENDPOINT}/app-updates"
+    else
+      sed -i.tmp "s|\"apiEndpoint\": \"https://[^\"]*amazonaws\.com/[^/]*/app-updates\"|\"apiEndpoint\": \"${API_ENDPOINT}/app-updates\"|g" update-config.json
+      echo "✅ Updated app-updates endpoint for development: ${API_ENDPOINT}/app-updates"
+    fi
+    
+    rm -f update-config.json.tmp
+  fi
+  
   echo "✅ UpdateService will use environment-based API endpoint automatically"
 else
   echo "⚠️  Warning: Could not get API endpoint. Mobile app will use default configuration."
