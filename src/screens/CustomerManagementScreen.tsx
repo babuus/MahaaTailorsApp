@@ -67,11 +67,13 @@ const CustomerManagementScreen: React.FC<Props> = ({ navigation }) => {
       type: 'DELETE',
       onSuccess: () => {
         setDeleteDialog({ visible: false, customer: null });
-        Alert.alert('Success', 'Customer deleted successfully');
+        setSuccessMessage('Customer deleted successfully');
+        setShowSuccessDialog(true);
         refetch(); // Refresh the list
       },
       onError: (error) => {
-        Alert.alert('Error', error.message);
+        setErrorMessage(error.message);
+        setShowErrorDialog(true);
       },
       optimisticUpdate: (customerId) => {
         // Optimistically remove from local state
@@ -95,6 +97,10 @@ const CustomerManagementScreen: React.FC<Props> = ({ navigation }) => {
     visible: false,
     customer: null,
   });
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Theme styles
   const containerStyle = useMemo(() => ({
@@ -187,10 +193,12 @@ const CustomerManagementScreen: React.FC<Props> = ({ navigation }) => {
       if (supported) {
         await Linking.openURL(phoneUrl);
       } else {
-        Alert.alert('Error', 'Phone dialer is not available on this device');
+        setErrorMessage('Phone dialer is not available on this device');
+        setShowErrorDialog(true);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to open phone dialer');
+      setErrorMessage('Failed to open phone dialer');
+      setShowErrorDialog(true);
     }
   }, []);
 
@@ -357,6 +365,24 @@ const CustomerManagementScreen: React.FC<Props> = ({ navigation }) => {
         onConfirm={confirmDeleteCustomer}
         onCancel={cancelDelete}
         destructive={true}
+      />
+
+      <ConfirmDialog
+        visible={showSuccessDialog}
+        title="Success"
+        message={successMessage}
+        confirmText="OK"
+        onConfirm={() => setShowSuccessDialog(false)}
+        onCancel={() => setShowSuccessDialog(false)}
+      />
+
+      <ConfirmDialog
+        visible={showErrorDialog}
+        title="Error"
+        message={errorMessage}
+        confirmText="OK"
+        onConfirm={() => setShowErrorDialog(false)}
+        onCancel={() => setShowErrorDialog(false)}
       />
     </View>
   );

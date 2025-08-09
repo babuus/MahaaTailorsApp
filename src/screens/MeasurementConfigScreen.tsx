@@ -24,7 +24,8 @@ import {
   OfflineMessage,
   SkeletonLoader,
   SkeletonCard,
-  SkeletonList
+  SkeletonList,
+  ConfirmDialog
 } from '../components';
 
 type MeasurementConfigScreenNavigationProp = StackNavigationProp<
@@ -61,11 +62,13 @@ const MeasurementConfigScreen: React.FC<Props> = ({ navigation }) => {
       entity: 'measurementConfig',
       type: 'DELETE',
       onSuccess: () => {
-        Alert.alert('Success', 'Template deleted successfully');
+        setSuccessMessage('Template deleted successfully');
+        setShowSuccessDialog(true);
         refetch(); // Refresh the list
       },
       onError: (error) => {
-        Alert.alert('Error', error.message);
+        setErrorMessage(error.message);
+        setShowErrorDialog(true);
       },
       optimisticUpdate: (configId) => {
         // Optimistically remove from local state
@@ -80,6 +83,10 @@ const MeasurementConfigScreen: React.FC<Props> = ({ navigation }) => {
 
   const [filteredConfigs, setFilteredConfigs] = useState<MeasurementConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Filter configs based on search query
   useEffect(() => {
@@ -113,19 +120,12 @@ const MeasurementConfigScreen: React.FC<Props> = ({ navigation }) => {
 
 
 
-  // Handle delete template
-  const handleDeleteTemplate = async (config: MeasurementConfig) => {
-    try {
-      await deleteConfigMutation.mutate(config.id);
-    } catch (error) {
-      // Error handling is done in the mutation
-    }
-  };
-
-  // Handle template press (view details) - disabled for now
+  // Handle template press (navigate to edit)
   const handleTemplatePress = (config: MeasurementConfig) => {
-    // Template press functionality disabled - no editing allowed
-    // Could be used for view-only details in the future
+    navigation.navigate('MeasurementConfigForm', { 
+      mode: 'edit', 
+      config: config 
+    });
   };
 
   // Render empty state
@@ -180,7 +180,6 @@ const MeasurementConfigScreen: React.FC<Props> = ({ navigation }) => {
     <MeasurementConfigListItem
       item={item}
       onPress={handleTemplatePress}
-      onDelete={handleDeleteTemplate}
       testID={`measurement-config-item-${item.id}`}
     />
   );
@@ -257,6 +256,24 @@ const MeasurementConfigScreen: React.FC<Props> = ({ navigation }) => {
       >
         <Icon name="add" size={24} color="#FFFFFF" />
       </TouchableOpacity>
+
+      <ConfirmDialog
+        visible={showSuccessDialog}
+        title="Success"
+        message={successMessage}
+        confirmText="OK"
+        onConfirm={() => setShowSuccessDialog(false)}
+        onCancel={() => setShowSuccessDialog(false)}
+      />
+
+      <ConfirmDialog
+        visible={showErrorDialog}
+        title="Error"
+        message={errorMessage}
+        confirmText="OK"
+        onConfirm={() => setShowErrorDialog(false)}
+        onCancel={() => setShowErrorDialog(false)}
+      />
     </View>
   );
 };

@@ -22,7 +22,8 @@ import {
   LoadingSpinner, 
   SuccessMessage, 
   FormSkeleton,
-  SkeletonLoader 
+  SkeletonLoader,
+  ConfirmDialog
 } from '../components';
 import { validateMeasurementConfigForm } from '../utils/validation';
 
@@ -68,6 +69,10 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
   const [isDirty, setIsDirty] = useState(false);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showUnsavedChangesDialog, setShowUnsavedChangesDialog] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [errorDialogMessage, setErrorDialogMessage] = useState('');
 
   // Form navigation refs
   const garmentTypeRef = useRef<TextInput>(null);
@@ -190,7 +195,8 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
   // Remove measurement field
   const removeMeasurementField = useCallback((index: number) => {
     if (formData.measurements.length <= 1) {
-      Alert.alert('Cannot Remove', 'At least one measurement field is required');
+      setErrorDialogMessage('At least one measurement field is required');
+      setShowErrorDialog(true);
       return;
     }
 
@@ -199,6 +205,44 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
       measurements: prev.measurements.filter((_, i) => i !== index),
     }));
   }, [formData.measurements.length]);
+
+  // Handle delete template
+  const handleDelete = useCallback(() => {
+    if (!isEditMode || !config) return;
+    setShowDeleteDialog(true);
+  }, [isEditMode, config]);
+
+  // Confirm delete template
+  const handleConfirmDelete = useCallback(async () => {
+    if (!config) return;
+
+    setShowDeleteDialog(false);
+    setIsSubmitting(true);
+    
+    try {
+      await apiService.deleteMeasurementConfig(config.id);
+      
+      // Show success message
+      setSuccessMessage('Template deleted successfully');
+      setShowSuccessMessage(true);
+      
+      // Navigate back after showing success message
+      setTimeout(() => {
+        navigation.goBack();
+      }, 1500);
+    } catch (error) {
+      console.error('Error deleting template:', error);
+      setErrorDialogMessage('Failed to delete template. Please try again.');
+      setShowErrorDialog(true);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [config, navigation]);
+
+  // Cancel delete
+  const handleCancelDelete = useCallback(() => {
+    setShowDeleteDialog(false);
+  }, []);
 
   // Handle form submission with enhanced feedback
   const handleSubmit = useCallback(async () => {
@@ -210,7 +254,8 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
         measurementRefs.current[0]?.focus();
       }
       
-      Alert.alert('Validation Error', 'Please fix the errors in the form before submitting.');
+      setErrorDialogMessage('Please fix the errors in the form before submitting.');
+      setShowErrorDialog(true);
       return;
     }
 
@@ -255,10 +300,8 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
       }
     } catch (error) {
       console.error('Error saving template:', error);
-      Alert.alert(
-        'Error',
-        `Failed to ${isEditMode ? 'update' : 'create'} template. Please try again.`
-      );
+      setErrorDialogMessage(`Failed to ${isEditMode ? 'update' : 'create'} template. Please try again.`);
+      setShowErrorDialog(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -267,18 +310,22 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
   // Handle back navigation with unsaved changes warning
   const handleBackPress = useCallback(() => {
     if (isDirty) {
-      Alert.alert(
-        'Unsaved Changes',
-        'You have unsaved changes. Are you sure you want to go back?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Discard', style: 'destructive', onPress: () => navigation.goBack() },
-        ]
-      );
+      setShowUnsavedChangesDialog(true);
     } else {
       navigation.goBack();
     }
   }, [isDirty, navigation]);
+
+  // Confirm discard changes
+  const handleConfirmDiscard = useCallback(() => {
+    setShowUnsavedChangesDialog(false);
+    navigation.goBack();
+  }, [navigation]);
+
+  // Cancel discard
+  const handleCancelDiscard = useCallback(() => {
+    setShowUnsavedChangesDialog(false);
+  }, []);
 
   const containerStyle = {
     backgroundColor: isDarkMode ? COLORS.DARK : COLORS.LIGHT,
@@ -312,6 +359,37 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
         message={successMessage}
         onDismiss={() => setShowSuccessMessage(false)}
         testID="success-message"
+      />
+
+      <ConfirmDialog
+        visible={showDeleteDialog}
+        title="Delete Template"
+        message={`Are you sure you want to delete the "${config?.garmentType}" template? This action cannot be undone.`}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+        destructive={true}
+      />
+
+      <ConfirmDialog
+        visible={showUnsavedChangesDialog}
+        title="Unsaved Changes"
+        message="You have unsaved changes. Are you sure you want to go back?"
+        confirmText="Discard"
+        cancelText="Cancel"
+        onConfirm={handleConfirmDiscard}
+        onCancel={handleCancelDiscard}
+        destructive={true}
+      />
+
+      <ConfirmDialog
+        visible={showErrorDialog}
+        title="Error"
+        message={errorDialogMessage}
+        confirmText="OK"
+        onConfirm={() => setShowErrorDialog(false)}
+        onCancel={() => setShowErrorDialog(false)}
       />
       
       <ScrollView
@@ -421,6 +499,17 @@ const MeasurementConfigFormScreen: React.FC<Props> = ({ navigation, route }) => 
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
 
+        {isEditMode && (
+          <TouchableOpacity
+            style={[styles.button, styles.deleteButton, isSubmitting && styles.disabledButton]}
+            onPress={handleDelete}
+            disabled={isSubmitting}
+            testID="delete-button"
+          >
+            <Text style={styles.deleteButtonText}>Delete</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity
           style={[
             styles.button,
@@ -528,6 +617,15 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: {
     color: COLORS.PRIMARY,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  deleteButton: {
+    backgroundColor: COLORS.ERROR,
+    marginHorizontal: SPACING.XS,
+  },
+  deleteButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },

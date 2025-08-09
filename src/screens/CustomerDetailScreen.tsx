@@ -48,6 +48,10 @@ const CustomerDetailScreen: React.FC<Props> = ({ navigation, route }) => {
   const [deleteDialog, setDeleteDialog] = useState({
     visible: false,
   });
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
+  const [showErrorDialog, setShowErrorDialog] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   // State for measurement slider active indices
   const [measurementActiveIndices, setMeasurementActiveIndices] = useState<Record<string, number>>({});
 
@@ -73,7 +77,8 @@ const CustomerDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     const phoneNumber = customer.personalDetails.phone;
     if (phoneNumber) {
       Linking.openURL(`tel:${phoneNumber}`).catch(() => {
-        Alert.alert('Error', 'Unable to make phone call');
+        setErrorMessage('Unable to make phone call');
+        setShowErrorDialog(true);
       });
     }
   }, [customer.personalDetails.phone]);
@@ -83,7 +88,8 @@ const CustomerDetailScreen: React.FC<Props> = ({ navigation, route }) => {
     const email = customer.personalDetails.email;
     if (email) {
       Linking.openURL(`mailto:${email}`).catch(() => {
-        Alert.alert('Error', 'Unable to open email client');
+        setErrorMessage('Unable to open email client');
+        setShowErrorDialog(true);
       });
     }
   }, [customer.personalDetails.email]);
@@ -105,15 +111,16 @@ const CustomerDetailScreen: React.FC<Props> = ({ navigation, route }) => {
       await apiService.deleteCustomer(customer.id);
 
       setDeleteDialog({ visible: false });
-      Alert.alert('Success', 'Customer deleted successfully', [
-        {
-          text: 'OK',
-          onPress: () => navigation.goBack(),
-        },
-      ]);
+      setSuccessMessage('Customer deleted successfully');
+      setShowSuccessDialog(true);
+      // Navigate back after a short delay
+      setTimeout(() => {
+        navigation.goBack();
+      }, 1500);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to delete customer';
-      Alert.alert('Error', errorMessage);
+      setErrorMessage(errorMessage);
+      setShowErrorDialog(true);
     } finally {
       setLoading(false);
     }
@@ -438,6 +445,24 @@ const CustomerDetailScreen: React.FC<Props> = ({ navigation, route }) => {
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
         destructive={true}
+      />
+
+      <ConfirmDialog
+        visible={showSuccessDialog}
+        title="Success"
+        message={successMessage}
+        confirmText="OK"
+        onConfirm={() => setShowSuccessDialog(false)}
+        onCancel={() => setShowSuccessDialog(false)}
+      />
+
+      <ConfirmDialog
+        visible={showErrorDialog}
+        title="Error"
+        message={errorMessage}
+        confirmText="OK"
+        onConfirm={() => setShowErrorDialog(false)}
+        onCancel={() => setShowErrorDialog(false)}
       />
     </View>
   );

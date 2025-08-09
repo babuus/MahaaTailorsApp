@@ -14,35 +14,15 @@ import { MeasurementConfig } from '../types';
 interface MeasurementConfigListItemProps {
   item: MeasurementConfig;
   onPress?: (item: MeasurementConfig) => void;
-  onDelete?: (item: MeasurementConfig) => void;
   testID?: string;
 }
 
 const MeasurementConfigListItem: React.FC<MeasurementConfigListItemProps> = ({
   item,
   onPress,
-  onDelete,
   testID,
 }) => {
   const { isDarkMode } = useThemeContext();
-
-  const handleDelete = () => {
-    Alert.alert(
-      'Delete Template',
-      `Are you sure you want to delete the "${item.garmentType}" template? This action cannot be undone.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => onDelete?.(item),
-        },
-      ]
-    );
-  };
 
   const containerStyle = {
     backgroundColor: isDarkMode ? '#333' : '#fff',
@@ -73,19 +53,6 @@ const MeasurementConfigListItem: React.FC<MeasurementConfigListItemProps> = ({
           <Text style={[styles.fieldCount, subtitleStyle]}>
             {item.measurements.length} field{item.measurements.length !== 1 ? 's' : ''}
           </Text>
-        </View>
-        
-        <View style={styles.actions}>
-          {onDelete && (
-            <TouchableOpacity
-              style={[styles.actionButton, styles.deleteButton]}
-              onPress={handleDelete}
-              accessibilityLabel="Delete template"
-              accessibilityHint="Delete this measurement template"
-            >
-              <Icon name="delete" size={18} color="#fff" />
-            </TouchableOpacity>
-          )}
         </View>
       </View>
       
@@ -130,24 +97,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '400',
   },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  actionButton: {
-    padding: SPACING.SM,
-    marginLeft: SPACING.XS,
-    borderRadius: 20,
-    minWidth: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteButton: {
-    backgroundColor: COLORS.ERROR,
-  },
-  actionText: {
-    fontSize: 16,
-  },
+
   measurementPreview: {
     paddingHorizontal: SPACING.MD,
     paddingBottom: SPACING.MD,

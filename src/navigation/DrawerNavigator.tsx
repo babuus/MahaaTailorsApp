@@ -12,7 +12,7 @@ import {
   BackHandler,
   Alert,
 } from 'react-native';
-import { MaterialIcon, SwipeBackGesture, ScreenTransition } from '../components';
+import { MaterialIcon, SwipeBackGesture, ScreenTransition, ConfirmDialog } from '../components';
 
 import { COLORS, SPACING } from '../constants';
 import { Logo } from '../components';
@@ -48,6 +48,7 @@ const DrawerNavigator: React.FC = () => {
     { screen: 'Dashboard' }
   ]);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [showExitDialog, setShowExitDialog] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
 
   // Menu items definition (moved up to avoid reference issues)
@@ -121,23 +122,7 @@ const DrawerNavigator: React.FC = () => {
       }
 
       // If we're on Dashboard, show exit confirmation
-      Alert.alert(
-        'Exit App',
-        'Are you sure you want to exit?',
-        [
-          {
-            text: 'Cancel',
-            onPress: () => null,
-            style: 'cancel',
-          },
-          {
-            text: 'Exit',
-            onPress: () => BackHandler.exitApp(),
-            style: 'destructive',
-          },
-        ],
-        { cancelable: false }
-      );
+      setShowExitDialog(true);
       return true;
     };
 
@@ -615,6 +600,20 @@ const DrawerNavigator: React.FC = () => {
           </View>
         </Animated.View>
       </View>
+
+      <ConfirmDialog
+        visible={showExitDialog}
+        title="Exit App"
+        message="Are you sure you want to exit?"
+        confirmText="Exit"
+        cancelText="Cancel"
+        onConfirm={() => {
+          setShowExitDialog(false);
+          BackHandler.exitApp();
+        }}
+        onCancel={() => setShowExitDialog(false)}
+        destructive={true}
+      />
     </View>
   );
 };
