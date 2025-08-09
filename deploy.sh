@@ -108,6 +108,15 @@ fi
 echo "📦 Installing mobile app dependencies..."
 npm install --legacy-peer-deps
 
+# Fix React Native codegen issues
+echo "🔧 Fixing React Native codegen issues..."
+if [[ -f "./fix-codegen.sh" ]]; then
+  ./fix-codegen.sh
+else
+  echo "⚠️  fix-codegen.sh not found, running manual codegen fix..."
+  npx react-native codegen || echo "⚠️  Codegen completed with warnings"
+fi
+
 # iOS specific setup
 if [[ "$MOBILE_PLATFORM" == "ios" || "$MOBILE_PLATFORM" == "both" ]]; then
   if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -140,6 +149,12 @@ if [[ "$MOBILE_PLATFORM" == "android" || "$MOBILE_PLATFORM" == "both" ]]; then
   fi
   
   cd android
+  
+  # Clean codegen files to prevent duplicate class errors
+  echo "🧹 Cleaning codegen files..."
+  rm -rf app/build/generated/source/codegen
+  rm -rf ../build/generated
+  ./gradlew clean
   
   if [[ "$BUILD_MODE" == "release" ]]; then
     echo "Building Android release..."

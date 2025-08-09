@@ -1,27 +1,25 @@
 Mahaa Tailors Mobile App Deployment Report
 ==========================================
 
-Deployment Date: Sat Aug  9 09:57:15 AM IST 2025
+Deployment Date: Sat Aug  9 08:34:35 PM IST 2025
 Environment: dev
 Platform: android
-Build Mode: debug
+Build Mode: release
 App Version: 0.0.1
 API Endpoint: https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod
 S3 Bucket: mahaatailors-dev
 
 Build Artifacts:
-- Android APK: deploy/android/app-release.apk (66M)
-- Android AAB: deploy/android/app-release.aab (44M)
-- Android Debug APK: deploy/android/app-debug.apk (157M)
+- Android APK: deploy/android/app-release.apk (53M)
+- Android AAB: deploy/android/app-release.aab (25M)
 
 Download URLs:
 
-- Release APK: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-v0.0.1-20250809-095534-release.apk
-- Debug APK: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-v0.0.1-20250809-095534-debug.apk
+- Release APK: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-v0.0.1-20250809-203410-release.apk
 - Latest Release: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-latest-release.apk
-- Latest Debug: https://mahaatailors-dev.s3.ap-south-1.amazonaws.com/mobile/apk/mahaatailors-latest-debug.apk
 
 Next Steps:
-- Share debug APK link with testers
-- Install debug builds on test devices
+- Share APK download link with users
+- Upload Android AAB to Google Play Console
+- Upload iOS archive to App Store Connect
 - Deploy component updates using: ../../scripts/deploy-update.sh
