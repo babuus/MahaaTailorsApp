@@ -50,12 +50,12 @@ const SearchBar: React.FC<SearchBarProps> = ({
   };
 
   const containerStyle = {
-    backgroundColor: isDarkMode ? COLORS.DARK : COLORS.LIGHT,
-    borderColor: isDarkMode ? '#444' : '#ddd',
+    backgroundColor: isDarkMode ? COLORS.SURFACE_DARK : COLORS.SURFACE_LIGHT,
+    borderColor: isDarkMode ? COLORS.BORDER_DARK : COLORS.BORDER_LIGHT,
   };
 
   const textStyle = {
-    color: isDarkMode ? COLORS.LIGHT : COLORS.DARK,
+    color: isDarkMode ? COLORS.TEXT_DARK_PRIMARY : COLORS.TEXT_PRIMARY,
   };
 
   return (
@@ -104,29 +104,36 @@ function debounce<T extends (...args: any[]) => any>(
 
 const styles = StyleSheet.create({
   container: {
-    marginBottom: 16,
-    paddingVertical: SPACING.XS, // Added vertical padding to container
+    marginBottom: SPACING.MD,
+    paddingVertical: SPACING.XS,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderRadius: 24, // Increased from 8 to 24 for more rounded sides
-    paddingHorizontal: SPACING.MD, // Increased horizontal padding for better proportion
-    paddingVertical: SPACING.SM, // Increased vertical padding inside search container
-    elevation: 2,
+    borderWidth: 0, // Remove border for cleaner look
+    borderRadius: 28, // More rounded for modern pill shape
+    paddingHorizontal: SPACING.LG,
+    paddingVertical: SPACING.MD,
+    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
   searchIcon: {
-    fontSize: 18,
+    fontSize: 20,
     marginRight: SPACING.SM,
+    opacity: 0.6,
   },
   textInput: {
     flex: 1,
     fontSize: 16,
     paddingVertical: SPACING.XS,
+    fontWeight: '400',
   },
   clearButton: {
-    padding: SPACING.XS,
+    padding: SPACING.SM,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   clearIcon: {
     fontSize: 16,

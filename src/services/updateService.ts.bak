@@ -37,7 +37,7 @@ class UpdateService {
 
   constructor() {
     // Replace with your actual API endpoint
-    this.baseUrl = 'https://j4wtfrpivd.execute-api.ap-south-1.amazonaws.com/Prod/app-updates';
+    this.baseUrl = 'https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod/app-updates';
     this.currentVersion = '0.0.1'; // This should come from app.json or package.json
     this.platform = Platform.OS;
   }

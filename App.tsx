@@ -63,7 +63,8 @@ const AppContent: React.FC = () => {
     >
       <StatusBar
         barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={isDarkMode ? COLORS.DARK : COLORS.LIGHT}
+        backgroundColor={isDarkMode ? COLORS.SURFACE_DARK : COLORS.SURFACE_LIGHT}
+        translucent={false}
       />
       <AppNavigator />
       <UpdateIntegration />

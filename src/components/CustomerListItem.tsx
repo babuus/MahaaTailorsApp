@@ -35,15 +35,15 @@ const CustomerListItem: React.FC<CustomerListItemProps> = ({
   } = useAccessibility();
 
   const cardStyle = {
-    backgroundColor: isDarkMode ? COLORS.DARK : COLORS.LIGHT,
+    backgroundColor: isDarkMode ? COLORS.SURFACE_DARK : COLORS.SURFACE_LIGHT,
   };
 
   const textStyle = {
-    color: isDarkMode ? COLORS.LIGHT : COLORS.DARK,
+    color: isDarkMode ? COLORS.TEXT_DARK_PRIMARY : COLORS.TEXT_PRIMARY,
   };
 
   const subtextStyle = {
-    color: isDarkMode ? '#B0B0B0' : '#666666',
+    color: isDarkMode ? COLORS.TEXT_DARK_SECONDARY : COLORS.TEXT_SECONDARY,
   };
 
   const handlePress = () => {
@@ -160,40 +160,52 @@ const styles = StyleSheet.create({
   card: {
     marginHorizontal: SPACING.MD,
     marginVertical: SPACING.XS,
-    elevation: 2,
+    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    borderRadius: 12,
   },
   touchable: {
-    padding: SPACING.MD,
+    padding: SPACING.LG,
+    borderRadius: 12,
   },
   content: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   mainInfo: {
     flex: 1,
-    marginRight: SPACING.SM,
+    marginRight: SPACING.MD,
   },
   name: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: SPACING.XS,
+    lineHeight: 24,
   },
   phone: {
-    fontSize: 14,
+    fontSize: 15,
     marginBottom: SPACING.XS,
+    fontWeight: '500',
+    letterSpacing: 0.3,
   },
   email: {
-    fontSize: 12,
-    fontStyle: 'italic',
+    fontSize: 14,
+    opacity: 0.8,
+    lineHeight: 18,
   },
   actions: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: SPACING.XS,
   },
   iconButton: {
-    padding: 8,
-    marginLeft: 4,
+    padding: SPACING.SM,
+    marginLeft: SPACING.XS,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
 });
 

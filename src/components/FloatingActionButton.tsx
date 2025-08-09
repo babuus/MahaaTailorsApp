@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { FAB } from 'react-native-paper';
+import { COLORS } from '../constants';
 
 interface FloatingActionButtonProps {
   icon: string;
@@ -47,10 +48,15 @@ const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
 const styles = StyleSheet.create({
   fab: {
     position: 'absolute',
-    margin: 16,
+    margin: 20,
     right: 0,
     bottom: 0,
-    elevation: 8,
+    elevation: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    backgroundColor: COLORS.PRIMARY,
+    borderRadius: 28,
   },
 });
 

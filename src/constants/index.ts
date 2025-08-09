@@ -21,19 +21,39 @@ export const STORAGE_KEYS = {
 
 // UI Constants
 export const COLORS = {
-  PRIMARY: '#2196F3',
-  SECONDARY: '#FFC107',
-  SUCCESS: '#4CAF50',
-  ERROR: '#F44336',
-  WARNING: '#FF9800',
-  INFO: '#2196F3',
-  LIGHT: '#F5F5F5',
-  DARK: '#212121',
-  BACKGROUND: '#FAFAFA',
+  PRIMARY: '#1565C0', // Deeper, more professional blue
+  SECONDARY: '#D4AF37', // Elegant gold instead of yellow
+  SUCCESS: '#2E7D32', // Deeper green
+  ERROR: '#D32F2F', // Refined red
+  WARNING: '#F57C00', // Warmer orange
+  INFO: '#0288D1', // Lighter info blue
+  ACCENT: '#7E57C2', // Purple accent for highlights
+  MINT: '#26A69A', // Mint green for success states
+  
+  // Background colors
+  LIGHT: '#F8F9FA', // Softer light background
+  DARK: '#1A1A1A', // Deeper dark background
+  BACKGROUND: '#FFFFFF',
   BACKGROUND_LIGHT: '#FFFFFF',
-  TEXT_PRIMARY: '#212121',
-  TEXT_SECONDARY: '#757575',
+  SURFACE_LIGHT: '#FFFFFF',
+  SURFACE_DARK: '#2A2A2A',
+  
+  // Text colors
+  TEXT_PRIMARY: '#1A1A1A',
+  TEXT_SECONDARY: '#6B7280',
+  TEXT_LIGHT: '#9CA3AF',
+  TEXT_DARK_PRIMARY: '#FFFFFF',
+  TEXT_DARK_SECONDARY: '#D1D5DB',
+  
+  // Semantic colors
   ERROR_LIGHT: '#FFEBEE',
+  SUCCESS_LIGHT: '#E8F5E8',
+  WARNING_LIGHT: '#FFF3E0',
+  INFO_LIGHT: '#E3F2FD',
+  
+  // Border colors
+  BORDER_LIGHT: '#E5E7EB',
+  BORDER_DARK: '#374151',
 } as const;
 
 export const SPACING = {
@@ -42,6 +62,50 @@ export const SPACING = {
   MD: 16,
   LG: 24,
   XL: 32,
+  XXL: 48,
+} as const;
+
+// Typography system
+export const TYPOGRAPHY = {
+  // Font sizes
+  FONT_SIZE: {
+    XS: 12,
+    SM: 14,
+    MD: 16,
+    LG: 18,
+    XL: 20,
+    XXL: 24,
+    XXXL: 28,
+    DISPLAY: 32,
+  },
+  
+  // Font weights
+  FONT_WEIGHT: {
+    LIGHT: '300',
+    REGULAR: '400',
+    MEDIUM: '500',
+    SEMIBOLD: '600',
+    BOLD: '700',
+  },
+  
+  // Line heights
+  LINE_HEIGHT: {
+    TIGHT: 1.2,
+    NORMAL: 1.4,
+    RELAXED: 1.6,
+    LOOSE: 1.8,
+  },
+} as const;
+
+// Border radius system
+export const BORDER_RADIUS = {
+  XS: 4,
+  SM: 8,
+  MD: 12,
+  LG: 16,
+  XL: 20,
+  XXL: 28,
+  FULL: 9999,
 } as const;
 
 // Form validation
