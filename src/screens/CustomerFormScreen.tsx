@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 
 import {
   CustomerStackParamList,
@@ -107,9 +108,31 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
   const scrollViewRef = useRef<ScrollView>(null);
   const fieldNames = ['name', 'phone', 'email', 'address', 'comments'];
   const inputRefs = useRef<{ [key: string]: any }>({});
-  
+
   // Measurement field refs for automatic navigation
   const measurementRefs = useRef<{ [key: string]: any }>({});
+
+  // Helper function to scroll input into view when focused
+  const scrollToInput = useCallback((inputRef: any) => {
+    if (inputRef && scrollViewRef.current) {
+      // Use a timeout to ensure the input is fully rendered and focused
+      setTimeout(() => {
+        inputRef.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+          const screenHeight = Dimensions.get('window').height;
+          // Much more aggressive scrolling - scroll way past the input to ensure it's at the very top
+          // This accounts for keyboard taking up significant screen space
+          const extraScrollOffset = screenHeight * 0.3; // Add 30% of screen height as extra scroll
+          const safeAreaTop = Platform.OS === 'ios' ? 120 : 100; // Account for status bar and header
+          const targetY = Math.max(0, pageY - safeAreaTop - extraScrollOffset); // Position input well above keyboard
+
+          scrollViewRef.current?.scrollTo({
+            y: targetY,
+            animated: true,
+          });
+        });
+      }, 150); // Slightly longer delay to ensure keyboard animation completes
+    }
+  }, []);
 
   // Helper function to focus next field
   const focusNextField = useCallback((currentField: string) => {
@@ -121,10 +144,14 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         // Use requestAnimationFrame for smoother transition
         requestAnimationFrame(() => {
           nextRef.focus();
+          // Scroll to top of screen for better visibility
+          setTimeout(() => {
+            scrollToInput(nextRef);
+          }, 150);
         });
       }
     }
-  }, [fieldNames]);
+  }, [fieldNames, scrollToInput]);
 
   // Helper function to focus next measurement field
   const focusNextMeasurementField = useCallback((measurementIndex: number, fieldIndex: number, totalFields: number) => {
@@ -136,6 +163,10 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         // Use requestAnimationFrame for smoother transition
         requestAnimationFrame(() => {
           nextRef.focus();
+          // Scroll to top of screen for better visibility
+          setTimeout(() => {
+            scrollToInput(nextRef);
+          }, 150);
         });
       }
     } else {
@@ -146,10 +177,14 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         // Use requestAnimationFrame for smoother transition
         requestAnimationFrame(() => {
           notesRef.focus();
+          // Scroll to top of screen for better visibility
+          setTimeout(() => {
+            scrollToInput(notesRef);
+          }, 150);
         });
       }
     }
-  }, []);
+  }, [scrollToInput]);
 
   // UI state
   const [measurementConfigs, setMeasurementConfigs] = useState<MeasurementConfig[]>([]);
@@ -159,6 +194,9 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
   const [successMessage, setSuccessMessage] = useState('');
   // State for measurement slider active indices
   const [measurementActiveIndices, setMeasurementActiveIndices] = useState<Record<string, number>>({});
+
+  // State for minimized measurement groups (all minimized by default)
+  const [minimizedMeasurements, setMinimizedMeasurements] = useState<Record<string, boolean>>({});
 
   // Duplicate checking state
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
@@ -304,6 +342,14 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
     }));
   }, [setFormData]);
 
+  // Toggle measurement group minimize/expand
+  const toggleMeasurementGroup = useCallback((garmentType: string) => {
+    setMinimizedMeasurements(prev => ({
+      ...prev,
+      [garmentType]: !prev[garmentType]
+    }));
+  }, []);
+
   // Form submission with enhanced validation and feedback
   const handleFormSubmit = useCallback(async () => {
     try {
@@ -328,7 +374,13 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
             address: formData.personalDetails.address || undefined,
             dob: formData.personalDetails.dob || undefined,
           },
-          measurements: formData.measurements || [],
+          measurements: (formData.measurements || []).map(measurement => ({
+            ...measurement,
+            fields: measurement.fields.map(field => ({
+              ...field,
+              value: field.value.trim() === '' ? '0' : field.value
+            }))
+          })),
           comments: formData.comments || undefined,
         };
 
@@ -361,7 +413,13 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
             address: formData.personalDetails.address || undefined,
             dob: formData.personalDetails.dob || undefined,
           },
-          measurements: formData.measurements || [],
+          measurements: (formData.measurements || []).map(measurement => ({
+            ...measurement,
+            fields: measurement.fields.map(field => ({
+              ...field,
+              value: field.value.trim() === '' ? '0' : field.value
+            }))
+          })),
           comments: formData.comments || undefined,
         };
 
@@ -542,10 +600,28 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
     return groups;
   }, [formData.measurements]);
 
+  // Initialize all measurement groups as minimized when measurements change
+  useEffect(() => {
+    const garmentTypes = Object.keys(groupedMeasurements);
+    setMinimizedMeasurements(prev => {
+      const newState = { ...prev };
+      garmentTypes.forEach(garmentType => {
+        // Only set to minimized if not already defined (preserve user's choice)
+        if (!(garmentType in newState)) {
+          newState[garmentType] = true; // true means minimized
+        }
+      });
+      return newState;
+    });
+  }, [groupedMeasurements]);
+
   // Render personal details section
   const renderPersonalDetails = () => (
     <View style={[styles.section, cardStyle]}>
-      <Text style={[styles.sectionTitle, textStyle]}>Personal Details</Text>
+      <View style={styles.sectionHeader}>
+        <Icon name="person" size={24} color={COLORS.PRIMARY} />
+        <Text style={[styles.sectionTitle, textStyle]}>Personal Details</Text>
+      </View>
 
       <FormInput
         ref={(ref) => (inputRefs.current['name'] = ref)}
@@ -557,6 +633,7 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         returnKeyType="next"
         blurOnSubmit={false}
         onSubmitEditing={() => focusNextField('name')}
+        onFocus={() => scrollToInput(inputRefs.current['name'])}
         error={shouldShowFieldError('personalDetails.name', validation.errors, validation.touched)
           ? getFieldError('personalDetails.name', validation.errors)
           : undefined}
@@ -574,6 +651,7 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         returnKeyType="next"
         blurOnSubmit={false}
         onSubmitEditing={() => focusNextField('phone')}
+        onFocus={() => scrollToInput(inputRefs.current['phone'])}
         error={shouldShowFieldError('personalDetails.phone', validation.errors, validation.touched)
           ? getFieldError('personalDetails.phone', validation.errors)
           : undefined}
@@ -590,6 +668,7 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         returnKeyType="next"
         blurOnSubmit={false}
         onSubmitEditing={() => focusNextField('email')}
+        onFocus={() => scrollToInput(inputRefs.current['email'])}
         error={shouldShowFieldError('personalDetails.email', validation.errors, validation.touched)
           ? getFieldError('personalDetails.email', validation.errors)
           : undefined}
@@ -607,6 +686,7 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
         returnKeyType="next"
         blurOnSubmit={false}
         onSubmitEditing={() => focusNextField('address')}
+        onFocus={() => scrollToInput(inputRefs.current['address'])}
         error={shouldShowFieldError('personalDetails.address', validation.errors, validation.touched)
           ? getFieldError('personalDetails.address', validation.errors)
           : undefined}
@@ -649,57 +729,65 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
     const measurementIndex = measurement.originalIndex || 0;
     const fieldKey = `measurement_${measurementIndex}_${fieldIndex}`;
     const totalFields = measurement.fields.length;
-    
+
     return (
       <View key={fieldIndex} style={styles.measurementFieldRow}>
-        <Text style={[styles.measurementFieldLabel, textStyle]}>
-          {field.name.charAt(0).toUpperCase() + field.name.slice(1).replace('_', ' ')}:
-        </Text>
-        <FormInput
-          ref={(ref) => (measurementRefs.current[fieldKey] = ref)}
-          label=""
-          value={field.value}
-          onChangeText={(value) => updateMeasurementField(measurementIndex, fieldIndex, value)}
-          placeholder="Enter measurement"
-          keyboardType="numeric"
-          returnKeyType={fieldIndex < totalFields - 1 ? "next" : "done"}
-          blurOnSubmit={fieldIndex >= totalFields - 1}
-          onSubmitEditing={() => focusNextMeasurementField(measurementIndex, fieldIndex, totalFields)}
-          style={styles.measurementFieldInput}
-        />
+        <View style={styles.measurementFieldLabelContainer}>
+          <Text style={[styles.measurementFieldLabel, textStyle]}>
+            {field.name.charAt(0).toUpperCase() + field.name.slice(1).replace('_', ' ')}:
+          </Text>
+        </View>
+        <View style={styles.measurementFieldInputContainer}>
+          <FormInput
+            ref={(ref) => (measurementRefs.current[fieldKey] = ref)}
+            label=""
+            value={field.value}
+            onChangeText={(value) => updateMeasurementField(measurementIndex, fieldIndex, value)}
+            placeholder="Enter measurement"
+            keyboardType="numeric"
+            returnKeyType={fieldIndex < totalFields - 1 ? "next" : "done"}
+            blurOnSubmit={fieldIndex >= totalFields - 1}
+            onSubmitEditing={() => focusNextMeasurementField(measurementIndex, fieldIndex, totalFields)}
+            onFocus={() => scrollToInput(measurementRefs.current[fieldKey])}
+            style={styles.measurementFieldInput}
+          />
+        </View>
       </View>
     );
   };
 
   // Render single measurement card for slider
-  const renderMeasurementCard = (measurement: CustomerMeasurement & { originalIndex?: number }, index: number) => (
-    <View key={measurement.id || index} style={styles.measurementCard}>
-      {/* Measurement fields in a grid layout */}
-      <View style={styles.measurementGrid}>
-        {measurement.fields.map((field, fieldIndex) => renderMeasurementField(measurement, field, fieldIndex))}
-      </View>
+  const renderMeasurementCard = (measurement: CustomerMeasurement & { originalIndex?: number }, index: number) => {
+    return (
+      <View key={measurement.id || index} style={styles.measurementCard}>
+        {/* Measurement fields in a grid layout */}
+        <View style={styles.measurementGrid}>
+          {measurement.fields.map((field, fieldIndex) => renderMeasurementField(measurement, field, fieldIndex))}
+        </View>
 
-      {/* Measurement notes */}
-      <FormInput
-        ref={(ref) => (measurementRefs.current[`measurement_notes_${measurement.originalIndex || 0}`] = ref)}
-        label="Notes"
-        value={measurement.notes || ''}
-        onChangeText={(value) => updateMeasurementNotes(measurement.originalIndex || 0, value)}
-        placeholder="Add notes for this measurement"
-        multiline
-        numberOfLines={2}
-        returnKeyType="done"
-        style={styles.measurementNotesInput}
-      />
+        {/* Measurement notes */}
+        <FormInput
+          ref={(ref) => (measurementRefs.current[`measurement_notes_${measurement.originalIndex || 0}`] = ref)}
+          label="Notes"
+          value={measurement.notes || ''}
+          onChangeText={(value) => updateMeasurementNotes(measurement.originalIndex || 0, value)}
+          placeholder="Add notes for this measurement"
+          multiline
+          numberOfLines={2}
+          returnKeyType="done"
+          onFocus={() => scrollToInput(measurementRefs.current[`measurement_notes_${measurement.originalIndex || 0}`])}
+          style={styles.measurementNotesInput}
+        />
 
-      {/* Last measured date */}
-      <View style={styles.measurementFooter}>
-        <Text style={[styles.measurementDate, subtextStyle]}>
-          Last measured: {formatDateForDisplay(measurement.lastMeasuredDate)}
-        </Text>
+        {/* Last measured date */}
+        <View style={styles.measurementFooter}>
+          <Text style={[styles.measurementDate, subtextStyle]}>
+            Last measured: {formatDateForDisplay(measurement.lastMeasuredDate)}
+          </Text>
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   // Render pagination dots
   const renderPaginationDots = (measurements: CustomerMeasurement[], activeIndex: number) => {
@@ -728,7 +816,9 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderMeasurementGroup = (garmentType: string, measurements: (CustomerMeasurement & { originalIndex?: number })[]) => {
     const activeIndex = measurementActiveIndices[garmentType] || 0;
     const screenWidth = Dimensions.get('window').width;
-    const cardWidth = screenWidth - (SPACING.MD * 4); // Account for margins and padding
+    const cardWidth = screenWidth - 4; // Account for 2px margins on each side
+    const slideWidth = cardWidth - (SPACING.LG * 2) - (SPACING.SM * 2); // Account for card padding and slide padding
+    const isMinimized = minimizedMeasurements[garmentType] || false;
 
     const handleScroll = (event: any) => {
       const scrollPosition = event.nativeEvent.contentOffset.x;
@@ -739,56 +829,88 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
       }));
     };
 
+    const getGarmentIcon = (type: string) => {
+      switch (type.toLowerCase()) {
+        case 'shirt': return 'checkroom';
+        case 'pants': case 'trousers': return 'straighten';
+        case 'suit': return 'business-center';
+        case 'dress': return 'woman';
+        default: return 'straighten';
+      }
+    };
+
     return (
       <View key={garmentType} style={[styles.section, cardStyle]}>
-        <View style={styles.measurementHeader}>
-          <View style={styles.measurementTitleRow}>
-            <Text style={[styles.sectionTitle, textStyle]}>
-              {garmentType.charAt(0).toUpperCase() + garmentType.slice(1)} Measurements
-            </Text>
-            <TouchableOpacity
-              onPress={() => {
-                const measurementToRemove = measurements[activeIndex];
-                if (measurementToRemove && measurementToRemove.originalIndex !== undefined) {
-                  removeMeasurement(measurementToRemove.originalIndex);
-                }
-              }}
-              style={styles.removeMeasurementButton}
-            >
-              <Text style={styles.removeMeasurementText}>Remove</Text>
-            </TouchableOpacity>
-          </View>
-          {measurements.length > 1 && (
-            <Text style={[styles.measurementCount, subtextStyle]}>
-              {activeIndex + 1} of {measurements.length}
-            </Text>
+        <TouchableOpacity
+          style={styles.sectionHeader}
+          onPress={() => toggleMeasurementGroup(garmentType)}
+          activeOpacity={0.7}
+        >
+          <Icon name={getGarmentIcon(garmentType)} size={24} color={COLORS.PRIMARY} />
+          <Text style={[styles.sectionTitle, textStyle]}>
+            {garmentType.charAt(0).toUpperCase() + garmentType.slice(1)} Measurements
+          </Text>
+          {measurements.length > 1 && !isMinimized && (
+            <View style={styles.measurementBadge}>
+              <Text style={styles.measurementBadgeText}>
+                {activeIndex + 1}/{measurements.length}
+              </Text>
+            </View>
           )}
-        </View>
-
-        {measurements.length === 1 ? (
-          // Single measurement - no slider needed
-          <View style={styles.measurementContainer}>
-            {renderMeasurementCard(measurements[0], 0)}
-          </View>
-        ) : (
-          // Multiple measurements - show as slider
+          <Icon
+            name={isMinimized ? 'expand-more' : 'expand-less'}
+            size={24}
+            color={COLORS.PRIMARY}
+            style={styles.expandIcon}
+          />
+        </TouchableOpacity>
+        {!isMinimized && (
           <>
-            <ScrollView
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              onScroll={handleScroll}
-              scrollEventThrottle={16}
-              style={styles.measurementSlider}
-              contentContainerStyle={styles.sliderContent}
-            >
-              {measurements.map((measurement, index) => (
-                <View key={measurement.id || index} style={[styles.measurementSlide, { width: cardWidth }]}>
-                  {renderMeasurementCard(measurement, index)}
-                </View>
-              ))}
-            </ScrollView>
-            {renderPaginationDots(measurements, activeIndex)}
+            <View style={styles.measurementActions}>
+              <TouchableOpacity
+                onPress={() => {
+                  const measurementToRemove = measurements[activeIndex];
+                  if (measurementToRemove && measurementToRemove.originalIndex !== undefined) {
+                    removeMeasurement(measurementToRemove.originalIndex);
+                  }
+                }}
+                style={styles.removeMeasurementButton}
+              >
+                <Text style={styles.removeMeasurementText}>Remove</Text>
+              </TouchableOpacity>
+            </View>
+
+            {measurements.length === 1 ? (
+              // Single measurement - no slider needed
+              <View style={styles.measurementContainer}>
+                {renderMeasurementCard(measurements[0], 0)}
+              </View>
+            ) : (
+              // Multiple measurements - show as slider
+              <>
+                <ScrollView
+                  key={`${garmentType}-slider`}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  style={styles.measurementSlider}
+                  contentContainerStyle={styles.sliderContent}
+                  removeClippedSubviews={false}
+                  decelerationRate="fast"
+                  snapToInterval={slideWidth}
+                  snapToAlignment="start"
+                >
+                  {measurements.map((measurement, index) => (
+                    <View key={`${garmentType}-${measurement.id || measurement.originalIndex || index}`} style={[styles.measurementSlide, { width: slideWidth }]}>
+                      {renderMeasurementCard(measurement, index)}
+                    </View>
+                  ))}
+                </ScrollView>
+                {renderPaginationDots(measurements, activeIndex)}
+              </>
+            )}
           </>
         )}
       </View>
@@ -817,15 +939,11 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
               {hasExistingMeasurements ? 'Add More Measurements' : 'Measurements'}
             </Text>
             <Text style={[styles.measurementSubtitle, subtextStyle]}>
-              Add measurements for different garment types
+              You can add multiple measurements for the same garment type
             </Text>
           </View>
 
           <View style={styles.addMeasurementSection}>
-            <Text style={[styles.addMeasurementTitle, textStyle]}>Add New Measurement</Text>
-            <Text style={[styles.addMeasurementSubtitle, subtextStyle]}>
-              You can add multiple measurements for the same garment type
-            </Text>
             <View style={styles.addMeasurementButtons}>
               {measurementConfigs.map((config) => {
                 const existingCount = formData.measurements?.filter(m => m.garmentType.toLowerCase() === config.garmentType.toLowerCase()).length || 0;
@@ -852,15 +970,20 @@ const CustomerFormScreen: React.FC<Props> = ({ navigation, route }) => {
   // Render comments section
   const renderComments = () => (
     <View style={[styles.section, cardStyle]}>
+      <View style={styles.sectionHeader}>
+        <Icon name="comment" size={24} color={COLORS.PRIMARY} />
+        <Text style={[styles.sectionTitle, textStyle]}>Comments</Text>
+      </View>
       <FormInput
         ref={(ref) => (inputRefs.current['comments'] = ref)}
-        label="Comments"
+        label=""
         value={formData.comments || ''}
         onChangeText={handleCommentsChange}
         placeholder="Add any additional comments about the customer"
         multiline
         numberOfLines={4}
         returnKeyType="done"
+        onFocus={() => scrollToInput(inputRefs.current['comments'])}
         error={shouldShowFieldError('comments', validation.errors, validation.touched)
           ? getFieldError('comments', validation.errors)
           : undefined}
@@ -980,19 +1103,30 @@ const styles = StyleSheet.create({
     paddingBottom: 100, // Space for action buttons
   },
   section: {
-    margin: SPACING.MD,
-    padding: SPACING.MD,
-    borderRadius: 8,
-    elevation: 2,
+    marginHorizontal: 1,
+    marginVertical: SPACING.MD,
+    padding: SPACING.LG,
+    borderRadius: 16,
+    elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.22,
-    shadowRadius: 2.22,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    overflow: 'hidden',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.LG,
+  },
+  expandIcon: {
+    marginLeft: 'auto',
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: SPACING.MD,
+    fontSize: 20,
+    fontWeight: '700',
+    marginLeft: SPACING.SM,
+    flex: 1,
   },
   fieldLabel: {
     fontSize: 16,
@@ -1022,6 +1156,20 @@ const styles = StyleSheet.create({
   measurementHeader: {
     marginBottom: SPACING.MD,
   },
+  measurementBadge: {
+    backgroundColor: COLORS.PRIMARY,
+    paddingHorizontal: SPACING.SM,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  measurementBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  measurementActions: {
+    marginBottom: SPACING.MD,
+  },
   measurementSubtitle: {
     fontSize: 14,
     marginTop: SPACING.XS,
@@ -1044,6 +1192,7 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.MD,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
+    overflow: 'hidden',
   },
   measurementSlider: {
     marginBottom: SPACING.SM,
@@ -1052,7 +1201,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   measurementSlide: {
-    paddingHorizontal: SPACING.XS,
+    paddingHorizontal: SPACING.SM,
+    overflow: 'hidden',
+    justifyContent: 'flex-start',
   },
   paginationContainer: {
     flexDirection: 'row',
@@ -1068,26 +1219,34 @@ const styles = StyleSheet.create({
   },
   measurementGrid: {
     marginBottom: SPACING.SM,
+    width: '100%',
+    overflow: 'hidden',
   },
   measurementFieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    marginBottom: SPACING.SM,
+    width: '100%',
+  },
+  measurementFieldLabelContainer: {
     marginBottom: SPACING.XS,
-    paddingVertical: 2,
   },
   measurementFieldLabel: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
-    width: 120,
-    marginRight: SPACING.SM,
     textTransform: 'capitalize',
   },
+  measurementFieldInputContainer: {
+    width: '80%',
+    maxWidth: 200,
+  },
   measurementFieldInput: {
-    flex: 1,
     marginBottom: 0,
+    width: '100%',
+    minHeight: 40,
   },
   measurementNotesInput: {
     marginBottom: 0,
+    width: '90%',
   },
   measurementFooter: {
     flexDirection: 'row',

@@ -98,20 +98,7 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
         </View>
       </View>
 
-      {/* Stats Overview */}
-      <View style={styles.section}>
-        <Text style={[styles.sectionTitle, textStyle]}>Overview</Text>
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, cardStyle]}>
-            <Text style={[styles.statNumber, { color: COLORS.PRIMARY }]}>0</Text>
-            <Text style={[styles.statLabel, textStyle]}>Total Customers</Text>
-          </View>
-          <View style={[styles.statCard, cardStyle]}>
-            <Text style={[styles.statNumber, { color: COLORS.SECONDARY }]}>0</Text>
-            <Text style={[styles.statLabel, textStyle]}>Measurements</Text>
-          </View>
-        </View>
-      </View>
+
 
       {/* Recent Activity Placeholder */}
       <View style={styles.section}>
@@ -204,31 +191,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 16,
   },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    flex: 1,
-    padding: SPACING.LG,
-    borderRadius: 12,
-    marginHorizontal: SPACING.XS,
-    elevation: 2,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: SPACING.XS,
-  },
-  statLabel: {
-    fontSize: 14,
-    opacity: 0.7,
-    textAlign: 'center',
-  },
+
   emptyState: {
     padding: SPACING.XL,
     borderRadius: 12,

@@ -325,10 +325,13 @@ export const validateCustomerForm = (data: CustomerFormData): ValidationResult =
             message: 'Measurement field name is required',
           });
         }
-        if (!field.value.trim()) {
+        // Validate the measurement value (use '0' as default for empty values during validation only)
+        const valueToValidate = field.value.trim() === '' ? '0' : field.value;
+        const measurementValidation = validateMeasurementValue(valueToValidate);
+        if (!measurementValidation.isValid) {
           errors.push({
             field: `measurements.${index}.fields.${fieldIndex}.value`,
-            message: 'Measurement value is required',
+            message: measurementValidation.error!,
           });
         }
       });
