@@ -15,8 +15,8 @@ const DEPLOYMENT_ENVIRONMENT = 'development'; // This will be replaced by deploy
 // Default configuration - will be updated by deploy script
 export const ENV_CONFIG: EnvironmentConfig = {
   API_BASE_URL: DEPLOYMENT_ENVIRONMENT === 'development'
-    ? 'https://hkz1miqelc.execute-api.ap-south-1.amazonaws.com/Prod' // Development
-    : 'https://j4wtfrpivd.execute-api.ap-south-1.amazonaws.com/Prod', // Production
+    ? 'https://m91xqhoozd.execute-api.ap-south-1.amazonaws.com/dev' // Development
+    : 'https://1qd3r30gcl.execute-api.ap-south-1.amazonaws.com/prod', // Production
   ENVIRONMENT: DEPLOYMENT_ENVIRONMENT === 'development' ? 'development' : 'production',
   TIMEOUT: 15000, // Increased timeout for mobile networks
   RETRY_ATTEMPTS: 3,

@@ -37,11 +37,11 @@ if [[ -n "$API_ENDPOINT" && "$API_ENDPOINT" != "None" ]]; then
     # Update the API endpoint based on environment
     if [[ "$ENVIRONMENT" == "prod" ]]; then
       # For production, update the production URL (after the colon)
-      sed -i.tmp "s|: 'https://[^']*\.amazonaws\.com/Prod'|: '${API_ENDPOINT}'|g" src/config/environment.ts
+      sed -i.tmp "s|: 'https://[^']*\.amazonaws\.com/prod'|: '${API_ENDPOINT}'|g" src/config/environment.ts
       echo "✅ Updated production API endpoint to: ${API_ENDPOINT}"
     else
       # For development, update the development URL (after the question mark)
-      sed -i.tmp "s|? 'https://[^']*\.amazonaws\.com/Prod'|? '${API_ENDPOINT}'|g" src/config/environment.ts
+      sed -i.tmp "s|? 'https://[^']*\.amazonaws\.com/dev'|? '${API_ENDPOINT}'|g" src/config/environment.ts
       echo "✅ Updated development API endpoint to: ${API_ENDPOINT}"
     fi
     
