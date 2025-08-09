@@ -1,0 +1,42 @@
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "MahaaTailors-Backend-dev"
+resolve_s3 = true
+s3_prefix = "MahaaTailors-Backend-dev"
+region = "ap-south-1"
+confirm_changeset = false
+no_confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+no_input = true
+template = "template.yaml"
+parameter_overrides = "ProjectName=\"MahaaTailors\" Environment=\"dev\" AWSRegion=\"ap-south-1\""
+image_repositories = []
+
+[dev.deploy.parameters]
+stack_name = "MahaaTailors-Backend-dev"
+resolve_s3 = true
+s3_prefix = "MahaaTailors-Backend-dev"
+region = "ap-south-1"
+confirm_changeset = false
+no_confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+no_input = true
+template = "template.yaml"
+parameter_overrides = "ProjectName=\"MahaaTailors\" Environment=\"dev\" AWSRegion=\"ap-south-1\""
+image_repositories = []
+
+[prod.deploy.parameters]
+stack_name = "MahaaTailors-Backend-prod"
+resolve_s3 = true
+s3_prefix = "MahaaTailors-Backend-prod"
+region = "ap-south-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM"
+disable_rollback = false
+no_input = false
+template = "template.yaml"
+parameter_overrides = "ProjectName=\"MahaaTailors\" Environment=\"prod\" AWSRegion=\"ap-south-1\""
+image_repositories = []

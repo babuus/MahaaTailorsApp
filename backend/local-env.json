@@ -1,0 +1,17 @@
+{
+  "CustomerManagementLambda": {
+    "CUSTOMERS_TABLE_NAME": "mahaatailors-Customers-dev",
+    "MEASUREMENT_CONFIGS_TABLE_NAME": "mahaatailors-MeasurementConfigs-dev",
+    "BILLS_TABLE_NAME": "mahaatailors-Bills-dev"
+  },
+  "MeasurementConfigLambda": {
+    "MEASUREMENT_CONFIGS_TABLE_NAME": "mahaatailors-MeasurementConfigs-dev"
+  },
+  "ServicesLambda": {
+    "SERVICES_TABLE_NAME": "mahaatailors-Services-dev"
+  },
+  "BillingLambda": {
+    "BILLS_TABLE_NAME": "mahaatailors-Bills-dev",
+    "CUSTOMERS_TABLE_NAME": "mahaatailors-Customers-dev"
+  }
+}

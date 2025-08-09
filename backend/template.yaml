@@ -1,0 +1,402 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: CloudFormation template for Mahaa Tailors Backend (Lambda, DynamoDB, API Gateway)
+
+Globals:
+  Api:
+    Cors:
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
+      MaxAge: "'600'"
+    EndpointConfiguration:
+      Type: REGIONAL
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: MahaaTailors
+    Description: Name of the project, used as a prefix for resource names.
+  Environment:
+    Type: String
+    Default: dev
+    Description: The deployment environment (e.g., dev, prod).
+  AWSRegion:
+    Type: String
+    Default: ap-south-1
+    Description: The AWS region where resources will be deployed.
+
+Resources:
+  # DynamoDB Tables
+  CustomersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-Customers-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: customer_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  MeasurementConfigsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-MeasurementConfigs-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: garment_type
+          AttributeType: S
+      KeySchema:
+        - AttributeName: garment_type
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  ServicesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-Services-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: service_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: service_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  BillsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-Bills-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: bill_id
+          AttributeType: S
+        - AttributeName: customer_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: bill_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: CustomerIdIndex
+          KeySchema:
+            - AttributeName: customer_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  AppUpdatesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-AppUpdates-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: platform
+          AttributeType: S
+        - AttributeName: component
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: PlatformComponentIndex
+          KeySchema:
+            - AttributeName: platform
+              KeyType: HASH
+            - AttributeName: component
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # Note: Using frontend bucket for mobile app updates instead of separate bucket
+  # The UPDATES_BUCKET environment variable will be set to the frontend bucket name
+
+  # Lambda Functions with SAM Events (handles CORS automatically)
+  CustomerManagementLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-CustomerManagement-${Environment}"
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      CodeUri: customer-management/
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CustomersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MeasurementConfigsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BillsTable
+      Environment:
+        Variables:
+          CUSTOMERS_TABLE_NAME: !Ref CustomersTable
+          MEASUREMENT_CONFIGS_TABLE_NAME: !Ref MeasurementConfigsTable
+          BILLS_TABLE_NAME: !Ref BillsTable
+      Events:
+        GetCustomers:
+          Type: Api
+          Properties:
+            Path: /customers
+            Method: get
+        AddCustomer:
+          Type: Api
+          Properties:
+            Path: /customers
+            Method: post
+        UpdateCustomer:
+          Type: Api
+          Properties:
+            Path: /customers/{id}
+            Method: put
+        DeleteCustomer:
+          Type: Api
+          Properties:
+            Path: /customers/{id}
+            Method: delete
+        CheckCustomerExists:
+          Type: Api
+          Properties:
+            Path: /customers/exists
+            Method: get
+        CustomersOptions:
+          Type: Api
+          Properties:
+            Path: /customers
+            Method: options
+        CustomerExistsOptions:
+          Type: Api
+          Properties:
+            Path: /customers/exists
+            Method: options
+        CustomerIdOptions:
+          Type: Api
+          Properties:
+            Path: /customers/{id}
+            Method: options
+        GetCustomerMeasurements:
+          Type: Api
+          Properties:
+            Path: /customers/{id}/measurements
+            Method: get
+        SaveCustomerMeasurement:
+          Type: Api
+          Properties:
+            Path: /customers/{id}/measurements
+            Method: post
+        DeleteCustomerMeasurement:
+          Type: Api
+          Properties:
+            Path: /customers/{id}/measurements/{measurementId}
+            Method: delete
+
+  MeasurementConfigLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-MeasurementConfig-${Environment}"
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      CodeUri: measurement-config/
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MeasurementConfigsTable
+      Environment:
+        Variables:
+          MEASUREMENT_CONFIGS_TABLE_NAME: !Ref MeasurementConfigsTable
+      Events:
+        GetMeasurementConfigs:
+          Type: Api
+          Properties:
+            Path: /measurement-configs
+            Method: get
+        AddMeasurementConfig:
+          Type: Api
+          Properties:
+            Path: /measurement-configs
+            Method: post
+        UpdateMeasurementConfig:
+          Type: Api
+          Properties:
+            Path: /measurement-configs/{id}
+            Method: put
+        DeleteMeasurementConfig:
+          Type: Api
+          Properties:
+            Path: /measurement-configs/{id}
+            Method: delete
+        MeasurementConfigsOptions:
+          Type: Api
+          Properties:
+            Path: /measurement-configs
+            Method: options
+        MeasurementConfigIdOptions:
+          Type: Api
+          Properties:
+            Path: /measurement-configs/{id}
+            Method: options
+
+  ServicesLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-Services-${Environment}"
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      CodeUri: services/
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ServicesTable
+      Environment:
+        Variables:
+          SERVICES_TABLE_NAME: !Ref ServicesTable
+      Events:
+        GetServices:
+          Type: Api
+          Properties:
+            Path: /services
+            Method: get
+        AddService:
+          Type: Api
+          Properties:
+            Path: /services
+            Method: post
+        UpdateService:
+          Type: Api
+          Properties:
+            Path: /services/{id}
+            Method: put
+        DeleteService:
+          Type: Api
+          Properties:
+            Path: /services/{id}
+            Method: delete
+        ServicesOptions:
+          Type: Api
+          Properties:
+            Path: /services
+            Method: options
+        ServiceIdOptions:
+          Type: Api
+          Properties:
+            Path: /services/{id}
+            Method: options
+
+  BillingLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-Billing-${Environment}"
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      CodeUri: billing/
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BillsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref CustomersTable
+      Environment:
+        Variables:
+          BILLS_TABLE_NAME: !Ref BillsTable
+          CUSTOMERS_TABLE_NAME: !Ref CustomersTable
+      Events:
+        GetBills:
+          Type: Api
+          Properties:
+            Path: /bills
+            Method: get
+        AddBill:
+          Type: Api
+          Properties:
+            Path: /bills
+            Method: post
+        UpdateBill:
+          Type: Api
+          Properties:
+            Path: /bills/{id}
+            Method: put
+        DeleteBill:
+          Type: Api
+          Properties:
+            Path: /bills/{id}
+            Method: delete
+        BillsOptions:
+          Type: Api
+          Properties:
+            Path: /bills
+            Method: options
+        BillIdOptions:
+          Type: Api
+          Properties:
+            Path: /bills/{id}
+            Method: options
+        CustomerMeasurementsOptions:
+          Type: Api
+          Properties:
+            Path: /customers/{id}/measurements
+            Method: options
+        CustomerMeasurementIdOptions:
+          Type: Api
+          Properties:
+            Path: /customers/{id}/measurements/{measurementId}
+            Method: options
+
+  AppUpdatesLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${ProjectName}-AppUpdates-${Environment}"
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      CodeUri: app-updates/
+      MemorySize: 128
+      Timeout: 30
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AppUpdatesTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObjectVersion
+                - s3:GetObject
+                - s3:GeneratePresignedUrl
+              Resource: 
+                - !Sub "arn:aws:s3:::mahaatailors-frontend-${Environment}/*"
+                - !Sub "arn:aws:s3:::mahaatailors-frontend-${Environment}"
+      Environment:
+        Variables:
+          UPDATES_TABLE: !Ref AppUpdatesTable
+          UPDATES_BUCKET: !Sub "mahaatailors-frontend-${Environment}"
+      Events:
+        CheckUpdates:
+          Type: Api
+          Properties:
+            Path: /app-updates/check-updates
+            Method: get
+        DownloadUpdate:
+          Type: Api
+          Properties:
+            Path: /app-updates/download-update
+            Method: get
+        RegisterVersion:
+          Type: Api
+          Properties:
+            Path: /app-updates/register-version
+            Method: post
+        AppUpdatesOptions:
+          Type: Api
+          Properties:
+            Path: /app-updates/{proxy+}
+            Method: options
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWSRegion}.amazonaws.com/Prod"
+  ApiEndpointWithStage:
+    Description: API Gateway endpoint URL with stage
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWSRegion}.amazonaws.com/Prod"
