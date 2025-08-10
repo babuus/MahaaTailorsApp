@@ -154,7 +154,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
         if (mode === 'edit' && bill) {
           // Fetch fresh bill data to ensure we have the latest payments
           try {
-            const { getBillById } = await import('../services/api');
+            const { getBillById, getCustomerById } = await import('../services/api');
             const freshBill = await getBillById(bill.id);
             console.log('BillingFormScreen - Loaded fresh bill data:', {
               totalAmount: freshBill.totalAmount,
@@ -163,17 +163,46 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
               status: freshBill.status,
               paymentsCount: freshBill.payments?.length || 0
             });
+
+            // Fetch customer details separately to ensure we have complete customer info
+            let customerData = freshBill.customer;
+            if (freshBill.customerId && (!customerData || !customerData.personalDetails)) {
+              try {
+                customerData = await getCustomerById(freshBill.customerId);
+                console.log('BillingFormScreen - Loaded customer data:', customerData);
+              } catch (customerError) {
+                console.warn('Failed to fetch customer data:', customerError);
+                // Use whatever customer data we have from the bill
+                customerData = freshBill.customer || bill.customer;
+              }
+            }
+
             setBillItems(freshBill.items || []);
             setReceivedItems(freshBill.receivedItems || []);
-            setSelectedCustomer(freshBill.customer);
-            setCurrentBill(freshBill);
+            setSelectedCustomer(customerData);
+            setCurrentBill({ ...freshBill, customer: customerData });
           } catch (error) {
             console.warn('Failed to fetch fresh bill data, using passed data:', error);
             // Fallback to passed bill data
             setBillItems(bill.items || []);
             setReceivedItems(bill.receivedItems || []);
-            setSelectedCustomer(bill.customer);
-            setCurrentBill(bill);
+
+            // Try to fetch customer data even in fallback mode
+            if (bill.customerId) {
+              try {
+                const { getCustomerById } = await import('../services/api');
+                const customerData = await getCustomerById(bill.customerId);
+                setSelectedCustomer(customerData);
+                setCurrentBill({ ...bill, customer: customerData });
+              } catch (customerError) {
+                console.warn('Failed to fetch customer data in fallback:', customerError);
+                setSelectedCustomer(bill.customer);
+                setCurrentBill(bill);
+              }
+            } else {
+              setSelectedCustomer(bill.customer);
+              setCurrentBill(bill);
+            }
           }
         }
       } catch (error) {
@@ -296,14 +325,14 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
     setPayments(prev => prev.map((payment, i) => {
       if (i === index) {
         const updatedPayment = { ...payment, [field]: value };
-        
+
         // Validate payment amount doesn't exceed remaining balance
         if (field === 'amount') {
           const otherPaymentsTotal = prev
             .filter((_, idx) => idx !== index)
             .reduce((sum, p) => sum + p.amount, 0);
           const maxAmount = totalAmount - otherPaymentsTotal;
-          
+
           if (value > maxAmount) {
             Alert.alert(
               'Invalid Amount',
@@ -312,7 +341,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
             return payment; // Don't update if invalid
           }
         }
-        
+
         return updatedPayment;
       }
       return payment;
@@ -337,7 +366,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
       paymentsCount: updatedBill.payments?.length || 0,
       payments: updatedBill.payments?.map((p: any) => ({ id: p.id, amount: p.amount, date: p.paymentDate })) || []
     });
-    
+
     // Verify the bill update is working correctly
     console.log('BillingFormScreen - Before update, currentBill:', currentBill ? {
       totalAmount: currentBill.totalAmount,
@@ -346,9 +375,9 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
       status: currentBill.status,
       paymentsCount: currentBill.payments?.length || 0
     } : 'null');
-    
+
     setCurrentBill(updatedBill);
-    
+
     // Log after update to confirm state change
     setTimeout(() => {
       console.log('BillingFormScreen - After update, state should be updated');
@@ -504,11 +533,89 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
             touched.customerId && errors.customerId && styles.errorSection
           ]}>
             <Text style={styles.sectionTitle}>Customer Information</Text>
-            <CustomerSearchComponent
-              onCustomerSelect={handleCustomerSelect}
-              selectedCustomer={selectedCustomer}
-              navigation={navigation}
-            />
+
+            {mode === 'edit' ? (
+              // Non-editable customer display for edit mode
+              (() => {
+                const customer = selectedCustomer || currentBill?.customer;
+                if (!customer) {
+                  return (
+                    <View style={styles.customerDisplay}>
+                      <Text style={styles.customerName}>Loading customer information...</Text>
+                    </View>
+                  );
+                }
+
+                return (
+                  <TouchableOpacity
+                    style={styles.customerDisplay}
+                    onPress={() => {
+                      if (customer?.id) {
+                        navigation.navigate('CustomerDetail', {
+                          customerId: customer.id,
+                          customer: customer
+                        });
+                      }
+                    }}
+                    activeOpacity={0.7}
+                    testID="customer-info-card"
+                  >
+                    <View style={styles.customerHeader}>
+                      <View style={styles.customerAvatar}>
+                        <MaterialIcon name="person" size={24} color="#007AFF" />
+                      </View>
+                      <View style={styles.customerInfo}>
+                        <View style={styles.customerNameRow}>
+                          <Text style={styles.customerName}>
+                            {customer.personalDetails?.name || 'Unknown Customer'}
+                          </Text>
+                          <View style={styles.customerActions}>
+                            <MaterialIcon name="lock" size={14} color="#999" />
+                            <MaterialIcon name="chevron-right" size={16} color="#999" />
+                          </View>
+                        </View>
+                        <Text style={styles.customerPhone}>
+                          {customer.personalDetails?.phone || 'No phone number'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {customer.personalDetails?.email && (
+                      <View style={styles.customerDetail}>
+                        <MaterialIcon name="email" size={16} color="#666" />
+                        <Text style={styles.customerDetailText}>
+                          {customer.personalDetails.email}
+                        </Text>
+                      </View>
+                    )}
+
+                    {customer.personalDetails?.address && (
+                      <View style={styles.customerDetail}>
+                        <MaterialIcon name="location-on" size={16} color="#666" />
+                        <Text style={styles.customerDetailText}>
+                          {customer.personalDetails.address}
+                        </Text>
+                      </View>
+                    )}
+
+                    <View style={styles.customerNote}>
+                      <MaterialIcon name="info" size={14} color="#999" />
+                      <Text style={styles.customerNoteText}>
+                        Customer information cannot be changed when editing a bill
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })()
+            ) : (
+              // Editable customer search for create mode
+              <CustomerSearchComponent
+                onCustomerSelect={handleCustomerSelect}
+                selectedCustomer={selectedCustomer}
+                navigation={navigation}
+              />
+            )}
+
             {touched.customerId && errors.customerId && (
               <Text style={styles.errorText}>{errors.customerId}</Text>
             )}
@@ -785,7 +892,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
                   </View>
                   <View style={[styles.summaryRow, styles.outstandingRow]}>
                     <Text style={styles.summaryLabel}>Outstanding:</Text>
-                    <Text style={[styles.summaryValue, { 
+                    <Text style={[styles.summaryValue, {
                       color: outstandingAmount > 0 ? '#FF3B30' : '#34C759',
                       fontWeight: '700',
                     }]}>
@@ -1476,6 +1583,93 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
   methodButtonTextActive: {
     color: '#007AFF',
     fontWeight: '500',
+  },
+  // Customer display styles for edit mode
+  customerDisplay: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+  },
+  customerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  customerAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F0F8FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  customerInfo: {
+    flex: 1,
+  },
+  customerNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  customerName: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: isDarkMode ? '#FFFFFF' : '#000000',
+    flex: 1,
+    marginRight: 8,
+  },
+  customerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  customerPhone: {
+    fontSize: 14,
+    color: '#666',
+  },
+  customerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  customerBadgeText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  customerDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  customerDetailText: {
+    fontSize: 14,
+    color: '#666',
+    flex: 1,
+  },
+  customerNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E1E1E1',
+    gap: 6,
+  },
+  customerNoteText: {
+    fontSize: 12,
+    color: '#999',
+    fontStyle: 'italic',
+    flex: 1,
   },
 });
 
