@@ -182,26 +182,41 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
       };
 
       if (editingPayment) {
-        // For editing, we still need to implement the update functionality
-        const updatedPayment = await updatePayment(bill.id, editingPayment.id, {
+        // For editing payment, use the updated API that returns complete bill info
+        console.log('PaymentTrackingComponent - About to call updatePayment with:', {
+          billId: bill.id,
+          paymentId: editingPayment.id,
+          paymentData: paymentData,
+          currentBillState: {
+            totalAmount: bill.totalAmount,
+            paidAmount: bill.paidAmount,
+            outstandingAmount: bill.outstandingAmount,
+            status: bill.status,
+            paymentsCount: bill.payments?.length || 0
+          }
+        });
+        
+        const response = await updatePayment(bill.id, editingPayment.id, {
           ...paymentData,
           id: editingPayment.id,
         });
+        console.log('PaymentTrackingComponent - Raw updatePayment response:', response);
+        
+        const { payment: updatedPayment, bill: updatedBill } = response;
+        
+        console.log('PaymentTrackingComponent - Destructured updatePayment response:', {
+          payment: updatedPayment,
+          bill: {
+            totalAmount: updatedBill.totalAmount,
+            paidAmount: updatedBill.paidAmount,
+            outstandingAmount: updatedBill.outstandingAmount,
+            status: updatedBill.status,
+            paymentsCount: updatedBill.payments?.length || 0,
+            payments: updatedBill.payments?.map(p => ({ id: p.id, amount: p.amount, date: p.paymentDate })) || []
+          }
+        });
 
-        // Update the bill with the updated payment (manual calculation for now)
-        const updatedPayments = bill.payments.map(p => p.id === editingPayment.id ? updatedPayment : p);
-        const newPaidAmount = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
-        const newOutstandingAmount = bill.totalAmount - newPaidAmount;
-        const newStatus = calculateBillStatus(bill.totalAmount, newPaidAmount);
-
-        const updatedBill: Bill = {
-          ...bill,
-          payments: updatedPayments,
-          paidAmount: newPaidAmount,
-          outstandingAmount: newOutstandingAmount,
-          status: newStatus,
-        };
-
+        // Use the updated bill data from the backend (this ensures outstanding amount is correct)
         onBillUpdate(updatedBill);
       } else {
         // For adding new payment, use the updated API that returns complete bill info
@@ -266,21 +281,31 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
           style: 'destructive',
           onPress: async () => {
             try {
-              await deletePayment(bill.id, payment.id);
+              console.log('PaymentTrackingComponent - About to call deletePayment with:', {
+                billId: bill.id,
+                paymentId: payment.id,
+                paymentAmount: payment.amount,
+                currentBillState: {
+                  totalAmount: bill.totalAmount,
+                  paidAmount: bill.paidAmount,
+                  outstandingAmount: bill.outstandingAmount,
+                  status: bill.status,
+                  paymentsCount: bill.payments?.length || 0
+                }
+              });
 
-              const updatedPayments = bill.payments.filter(p => p.id !== payment.id);
-              const newPaidAmount = updatedPayments.reduce((sum, p) => sum + p.amount, 0);
-              const newOutstandingAmount = bill.totalAmount - newPaidAmount;
-              const newStatus = calculateBillStatus(bill.totalAmount, newPaidAmount);
+              const updatedBill = await deletePayment(bill.id, payment.id);
+              
+              console.log('PaymentTrackingComponent - deletePayment response:', {
+                totalAmount: updatedBill.totalAmount,
+                paidAmount: updatedBill.paidAmount,
+                outstandingAmount: updatedBill.outstandingAmount,
+                status: updatedBill.status,
+                paymentsCount: updatedBill.payments?.length || 0,
+                payments: updatedBill.payments?.map(p => ({ id: p.id, amount: p.amount, date: p.paymentDate })) || []
+              });
 
-              const updatedBill: Bill = {
-                ...bill,
-                payments: updatedPayments,
-                paidAmount: newPaidAmount,
-                outstandingAmount: newOutstandingAmount,
-                status: newStatus,
-              };
-
+              // Use the updated bill data from the backend (this ensures outstanding amount is correct)
               onBillUpdate(updatedBill);
               Alert.alert('Success', 'Payment removed successfully!');
             } catch (error) {

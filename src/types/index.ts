@@ -175,6 +175,7 @@ export interface CreateBillRequest {
   deliveryDate: string;
   items: Omit<BillItem, 'id' | 'totalPrice'>[];
   receivedItems: Omit<ReceivedItem, 'id'>[];
+  payments?: Omit<Payment, 'id' | 'createdAt'>[];
   notes?: string;
 }
 

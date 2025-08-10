@@ -685,14 +685,90 @@ class ApiService {
     return { payment, bill };
   }
 
-  async updatePayment(billId: string, paymentId: string, data: UpdatePaymentRequest): Promise<Payment> {
-    // TODO: Implement update payment API endpoint in backend
-    throw new Error('Update payment functionality is not yet implemented in the backend. Please delete and re-add the payment instead.');
+  async updatePayment(billId: string, paymentId: string, data: UpdatePaymentRequest): Promise<{ payment: Payment; bill: Bill }> {
+    const result = await this.makeRequest(
+      () => apiClient.put<any>(`/bills/${billId}/payments/${paymentId}`, data)
+    );
+
+    // Transform backend response - backend returns bill data at root level with payment property
+    const payment: Payment = {
+      id: result.payment.id,
+      amount: result.payment.amount,
+      paymentDate: result.payment.paymentDate,
+      paymentMethod: result.payment.paymentMethod,
+      notes: result.payment.notes || '',
+      createdAt: result.payment.createdAt ? new Date(result.payment.createdAt * 1000).toISOString() : new Date().toISOString(),
+    };
+
+    const bill: Bill = {
+      id: result.id,
+      customerId: result.customerId,
+      billNumber: result.billNumber,
+      billingDate: result.billingDate,
+      deliveryDate: result.deliveryDate,
+      items: result.items || [],
+      receivedItems: result.receivedItems || [],
+      totalAmount: result.totalAmount,
+      paidAmount: result.paidAmount,
+      outstandingAmount: result.outstandingAmount,
+      status: result.status as BillStatus,
+      payments: result.payments || [],
+      notes: result.notes || '',
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    };
+
+    console.log('API updatePayment - Backend response:', {
+      totalAmount: result.totalAmount,
+      paidAmount: result.paidAmount,
+      outstandingAmount: result.outstandingAmount,
+      status: result.status,
+      paymentsCount: result.payments?.length || 0
+    });
+
+    // Invalidate related caches
+    await cacheManager.remove('bills_');
+    await cacheManager.remove(`bill_${billId}`);
+    
+    return { payment, bill };
   }
 
-  async deletePayment(billId: string, paymentId: string): Promise<void> {
-    // TODO: Implement delete payment API endpoint in backend
-    throw new Error('Delete payment functionality is not yet implemented in the backend. Please contact support for assistance.');
+  async deletePayment(billId: string, paymentId: string): Promise<Bill> {
+    const result = await this.makeRequest(
+      () => apiClient.delete<any>(`/bills/${billId}/payments/${paymentId}`)
+    );
+
+    const bill: Bill = {
+      id: result.id,
+      customerId: result.customerId,
+      billNumber: result.billNumber,
+      billingDate: result.billingDate,
+      deliveryDate: result.deliveryDate,
+      items: result.items || [],
+      receivedItems: result.receivedItems || [],
+      totalAmount: result.totalAmount,
+      paidAmount: result.paidAmount,
+      outstandingAmount: result.outstandingAmount,
+      status: result.status as BillStatus,
+      payments: result.payments || [],
+      notes: result.notes || '',
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    };
+
+    console.log('API deletePayment - Backend response:', {
+      totalAmount: result.totalAmount,
+      paidAmount: result.paidAmount,
+      outstandingAmount: result.outstandingAmount,
+      status: result.status,
+      paymentsCount: result.payments?.length || 0
+    });
+
+    // Invalidate related caches
+    await cacheManager.remove('bills_');
+    await cacheManager.remove(`bill_${billId}`);
+    
+    return bill;
   }
 
   // Billing Configuration API methods

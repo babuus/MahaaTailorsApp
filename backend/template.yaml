@@ -440,11 +440,29 @@ Resources:
             RestApiId: !Ref ApiGatewayApi
             Path: /bills/{id}/payments
             Method: post
+        UpdatePayment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/payments/{paymentId}
+            Method: put
+        DeletePayment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/payments/{paymentId}
+            Method: delete
         PaymentsOptions:
           Type: Api
           Properties:
             RestApiId: !Ref ApiGatewayApi
             Path: /bills/{id}/payments
+            Method: options
+        PaymentIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/payments/{paymentId}
             Method: options
         GetBillingConfigItems:
           Type: Api

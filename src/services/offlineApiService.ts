@@ -122,6 +122,30 @@ class OfflineApiService {
 
   async createBill(data: CreateBillRequest): Promise<Bill> {
     const tempId = `temp_bill_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Calculate total amount
+    const totalAmount = data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+    
+    // Process payments if provided
+    const processedPayments = (data.payments || []).map((payment, index) => ({
+      ...payment,
+      id: `temp_payment_${index}`,
+      createdAt: new Date().toISOString(),
+    }));
+    
+    // Calculate paid amount and status
+    const paidAmount = processedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    const outstandingAmount = totalAmount - paidAmount;
+    
+    let status: 'unpaid' | 'partially_paid' | 'fully_paid' | 'draft' = 'draft';
+    if (paidAmount === 0) {
+      status = 'unpaid';
+    } else if (paidAmount >= totalAmount) {
+      status = 'fully_paid';
+    } else {
+      status = 'partially_paid';
+    }
+    
     const tempBill: Bill = {
       id: tempId,
       customerId: data.customerId,
@@ -139,11 +163,11 @@ class OfflineApiService {
         id: `temp_received_${index}`,
         status: 'received' as const,
       })),
-      totalAmount: data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0),
-      paidAmount: 0,
-      outstandingAmount: data.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0),
-      status: 'draft',
-      payments: [],
+      totalAmount,
+      paidAmount,
+      outstandingAmount,
+      status,
+      payments: processedPayments,
       notes: data.notes,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -264,14 +288,60 @@ class OfflineApiService {
     }
   }
 
-  async updatePayment(billId: string, paymentId: string, payment: UpdatePaymentRequest): Promise<Payment> {
-    // TODO: Implement update payment functionality
-    throw new Error('Update payment functionality is not yet implemented in the backend. Please delete and re-add the payment instead.');
+  async updatePayment(billId: string, paymentId: string, payment: UpdatePaymentRequest): Promise<{ payment: Payment; bill: Bill }> {
+    if (OfflineManager.isOnline()) {
+      try {
+        const result = await api.updatePayment(billId, paymentId, payment);
+        await this.updateBillPayments(billId, result.payment, 'update', paymentId);
+        return result;
+      } catch (error) {
+        console.warn('Online updatePayment failed, storing offline:', error);
+        // For offline, we'll update the payment locally
+        const updatedBill = await this.updateBillPayments(billId, payment as Payment, 'update', paymentId);
+        await OfflineManager.addPendingAction({
+          type: 'UPDATE',
+          entity: 'payment' as any,
+          data: { billId, paymentId, ...payment },
+        });
+        return { payment: payment as Payment, bill: updatedBill };
+      }
+    } else {
+      const updatedBill = await this.updateBillPayments(billId, payment as Payment, 'update', paymentId);
+      await OfflineManager.addPendingAction({
+        type: 'UPDATE',
+        entity: 'payment' as any,
+        data: { billId, paymentId, ...payment },
+      });
+      return { payment: payment as Payment, bill: updatedBill };
+    }
   }
 
-  async deletePayment(billId: string, paymentId: string): Promise<void> {
-    // TODO: Implement delete payment functionality
-    throw new Error('Delete payment functionality is not yet implemented in the backend. Please contact support for assistance.');
+  async deletePayment(billId: string, paymentId: string): Promise<Bill> {
+    if (OfflineManager.isOnline()) {
+      try {
+        const result = await api.deletePayment(billId, paymentId);
+        await this.updateBillPayments(billId, { id: paymentId } as Payment, 'remove');
+        return result;
+      } catch (error) {
+        console.warn('Online deletePayment failed, storing offline:', error);
+        // For offline, we'll remove the payment locally
+        const updatedBill = await this.updateBillPayments(billId, { id: paymentId } as Payment, 'remove');
+        await OfflineManager.addPendingAction({
+          type: 'DELETE',
+          entity: 'payment' as any,
+          data: { billId, paymentId },
+        });
+        return updatedBill;
+      }
+    } else {
+      const updatedBill = await this.updateBillPayments(billId, { id: paymentId } as Payment, 'remove');
+      await OfflineManager.addPendingAction({
+        type: 'DELETE',
+        entity: 'payment' as any,
+        data: { billId, paymentId },
+      });
+      return updatedBill;
+    }
   }
 
   // Customer API with offline support
@@ -454,7 +524,7 @@ class OfflineApiService {
     }
   }
 
-  private async updateBillPayments(billId: string, payment: Payment, action: 'add' | 'remove'): Promise<Bill> {
+  private async updateBillPayments(billId: string, payment: Payment, action: 'add' | 'remove' | 'update', paymentId?: string): Promise<Bill> {
     const offlineData = await OfflineManager.getOfflineData();
     const bills = offlineData?.bills || [];
     const billIndex = bills.findIndex(b => b.id === billId);
@@ -464,8 +534,13 @@ class OfflineApiService {
       
       if (action === 'add') {
         bill.payments.push(payment);
-      } else {
+      } else if (action === 'remove') {
         bill.payments = bill.payments.filter(p => p.id !== payment.id);
+      } else if (action === 'update' && paymentId) {
+        const paymentIndex = bill.payments.findIndex(p => p.id === paymentId);
+        if (paymentIndex > -1) {
+          bill.payments[paymentIndex] = { ...bill.payments[paymentIndex], ...payment, id: paymentId };
+        }
       }
       
       // Recalculate amounts

@@ -241,6 +241,7 @@ def add_bill(event, context):
         delivery_date = body.get("deliveryDate")
         items = body.get("items", [])
         received_items = body.get("receivedItems", [])
+        payments = body.get("payments", [])  # Add support for payments during creation
         notes = body.get("notes", "")
 
         if not customer_id or not billing_date or not delivery_date or not items:
@@ -293,6 +294,51 @@ def add_bill(event, context):
             }
             processed_received_items.append(processed_received_item)
 
+        # Process payments if provided
+        processed_payments = []
+        paid_amount = Decimal("0")
+        
+        for payment in payments:
+            payment_amount = Decimal(str(payment.get("amount", 0)))
+            
+            # Validate payment amount
+            if payment_amount <= 0:
+                continue
+                
+            # Validate payment doesn't exceed total
+            if paid_amount + payment_amount > total_amount:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({"error": "Total payment amount cannot exceed bill total."}),
+                    "headers": {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*",
+                        "Access-Control-Allow-Methods": "*",
+                        "Access-Control-Allow-Headers": "*",
+                    },
+                }
+            
+            processed_payment = {
+                "id": f"payment-{os.urandom(8).hex()}",
+                "amount": payment_amount,
+                "paymentDate": payment.get("paymentDate", billing_date),
+                "paymentMethod": payment.get("paymentMethod", "cash"),
+                "notes": payment.get("notes", ""),
+                "createdAt": now
+            }
+            processed_payments.append(processed_payment)
+            paid_amount += payment_amount
+
+        # Calculate outstanding amount and status
+        outstanding_amount = total_amount - paid_amount
+        
+        if outstanding_amount <= 0:
+            status = "fully_paid"
+        elif paid_amount > 0:
+            status = "partially_paid"
+        else:
+            status = "unpaid"
+
         bill_item = {
             "bill_id": bill_id,
             "customer_id": customer_id,
@@ -301,11 +347,11 @@ def add_bill(event, context):
             "delivery_date": delivery_date,
             "items": processed_items,
             "received_items": processed_received_items,
-            "total_amount": Decimal(str(total_amount)),
-            "paid_amount": Decimal("0"),
-            "outstanding_amount": Decimal(str(total_amount)),
-            "status": "unpaid",
-            "payments": [],
+            "total_amount": total_amount,
+            "paid_amount": paid_amount,
+            "outstanding_amount": outstanding_amount,
+            "status": status,
+            "payments": processed_payments,
             "notes": notes,
             "created_at": now,
             "updated_at": now,
@@ -323,10 +369,10 @@ def add_bill(event, context):
             "items": processed_items,
             "receivedItems": processed_received_items,
             "totalAmount": float(total_amount),
-            "paidAmount": 0,
-            "outstandingAmount": float(total_amount),
-            "status": "unpaid",
-            "payments": [],
+            "paidAmount": float(paid_amount),
+            "outstandingAmount": float(outstanding_amount),
+            "status": status,
+            "payments": processed_payments,
             "notes": notes,
             "createdAt": now,
             "updatedAt": now,
@@ -802,6 +848,276 @@ def add_payment(event, context):
     except Exception as e:
         return handle_error(e, "add_payment")
 
+def update_payment(event, context):
+    try:
+        bill_id = event["pathParameters"]["id"]
+        payment_id = event["pathParameters"]["paymentId"]
+        body = json.loads(event.get("body", "{}"))
+        amount = body.get("amount")
+        payment_date = body.get("paymentDate")
+        payment_method = body.get("paymentMethod")
+        notes = body.get("notes", "")
+
+        logger.info(f"DEBUG: Updating payment {payment_id} for bill {bill_id}")
+
+        if not bill_id or not payment_id or not amount or not payment_date or not payment_method:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Bill ID, payment ID, amount, payment date, and payment method are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get current bill
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        bill = response.get("Item")
+        
+        if not bill:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Find and update the payment
+        payments = bill.get("payments", [])
+        payment_found = False
+        old_payment_amount = 0
+        
+        for i, payment in enumerate(payments):
+            if payment.get("id") == payment_id:
+                old_payment_amount = float(payment.get("amount", 0))
+                payments[i] = {
+                    "id": payment_id,
+                    "amount": Decimal(str(amount)),
+                    "paymentDate": payment_date,
+                    "paymentMethod": payment_method,
+                    "notes": notes,
+                    "createdAt": payment.get("createdAt", int(datetime.now().timestamp()))
+                }
+                payment_found = True
+                break
+        
+        if not payment_found:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Payment not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Recalculate amounts
+        total_amount = float(bill.get("total_amount", 0))
+        new_paid_amount = sum(float(p.get("amount", 0)) for p in payments)
+        new_outstanding_amount = total_amount - new_paid_amount
+        
+        # Determine new status
+        if new_outstanding_amount <= 0:
+            new_status = "fully_paid"
+        elif new_paid_amount > 0:
+            new_status = "partially_paid"
+        else:
+            new_status = "unpaid"
+
+        now = int(datetime.now().timestamp())
+
+        # Update bill in database
+        bills_table.update_item(
+            Key={"bill_id": bill_id},
+            UpdateExpression="SET payments = :payments, paid_amount = :paidAmount, outstanding_amount = :outstandingAmount, #s = :status, updated_at = :updatedAt",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":payments": payments,
+                ":paidAmount": Decimal(str(new_paid_amount)),
+                ":outstandingAmount": Decimal(str(new_outstanding_amount)),
+                ":status": new_status,
+                ":updatedAt": now,
+            }
+        )
+
+        # Get the updated bill to return complete information
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        updated_bill = response.get("Item")
+        
+        # Find the updated payment
+        updated_payment = None
+        for payment in updated_bill.get("payments", []):
+            if payment.get("id") == payment_id:
+                updated_payment = payment
+                break
+
+        # Transform to match frontend expectations
+        bill_response = {
+            "id": updated_bill["bill_id"],
+            "customerId": updated_bill["customer_id"],
+            "billNumber": updated_bill.get("bill_number", ""),
+            "billingDate": updated_bill["billing_date"],
+            "deliveryDate": updated_bill["delivery_date"],
+            "items": updated_bill.get("items", []),
+            "receivedItems": updated_bill.get("received_items", []),
+            "totalAmount": float(updated_bill["total_amount"]) if isinstance(updated_bill["total_amount"], Decimal) else updated_bill["total_amount"],
+            "paidAmount": float(updated_bill.get("paid_amount", 0)) if isinstance(updated_bill.get("paid_amount", 0), Decimal) else updated_bill.get("paid_amount", 0),
+            "outstandingAmount": float(updated_bill.get("outstanding_amount", 0)) if isinstance(updated_bill.get("outstanding_amount", 0), Decimal) else updated_bill.get("outstanding_amount", 0),
+            "status": updated_bill.get("status", "unpaid"),
+            "payments": updated_bill.get("payments", []),
+            "notes": updated_bill.get("notes", ""),
+            "createdAt": updated_bill.get("created_at"),
+            "updatedAt": updated_bill.get("updated_at"),
+            "payment": updated_payment
+        }
+
+        logger.info(f"Updated payment {payment_id} for bill {bill_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps(bill_response, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "update_payment")
+
+def delete_payment(event, context):
+    try:
+        bill_id = event["pathParameters"]["id"]
+        payment_id = event["pathParameters"]["paymentId"]
+
+        logger.info(f"DEBUG: Deleting payment {payment_id} from bill {bill_id}")
+
+        if not bill_id or not payment_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Bill ID and payment ID are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get current bill
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        bill = response.get("Item")
+        
+        if not bill:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Find and remove the payment
+        payments = bill.get("payments", [])
+        payment_found = False
+        deleted_payment_amount = 0
+        
+        for i, payment in enumerate(payments):
+            if payment.get("id") == payment_id:
+                deleted_payment_amount = float(payment.get("amount", 0))
+                payments.pop(i)
+                payment_found = True
+                break
+        
+        if not payment_found:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Payment not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Recalculate amounts
+        total_amount = float(bill.get("total_amount", 0))
+        new_paid_amount = sum(float(p.get("amount", 0)) for p in payments)
+        new_outstanding_amount = total_amount - new_paid_amount
+        
+        # Determine new status
+        if new_outstanding_amount <= 0:
+            new_status = "fully_paid"
+        elif new_paid_amount > 0:
+            new_status = "partially_paid"
+        else:
+            new_status = "unpaid"
+
+        now = int(datetime.now().timestamp())
+
+        # Update bill in database
+        bills_table.update_item(
+            Key={"bill_id": bill_id},
+            UpdateExpression="SET payments = :payments, paid_amount = :paidAmount, outstanding_amount = :outstandingAmount, #s = :status, updated_at = :updatedAt",
+            ExpressionAttributeNames={"#s": "status"},
+            ExpressionAttributeValues={
+                ":payments": payments,
+                ":paidAmount": Decimal(str(new_paid_amount)),
+                ":outstandingAmount": Decimal(str(new_outstanding_amount)),
+                ":status": new_status,
+                ":updatedAt": now,
+            }
+        )
+
+        # Get the updated bill to return complete information
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        updated_bill = response.get("Item")
+        
+        # Transform to match frontend expectations
+        bill_response = {
+            "id": updated_bill["bill_id"],
+            "customerId": updated_bill["customer_id"],
+            "billNumber": updated_bill.get("bill_number", ""),
+            "billingDate": updated_bill["billing_date"],
+            "deliveryDate": updated_bill["delivery_date"],
+            "items": updated_bill.get("items", []),
+            "receivedItems": updated_bill.get("received_items", []),
+            "totalAmount": float(updated_bill["total_amount"]) if isinstance(updated_bill["total_amount"], Decimal) else updated_bill["total_amount"],
+            "paidAmount": float(updated_bill.get("paid_amount", 0)) if isinstance(updated_bill.get("paid_amount", 0), Decimal) else updated_bill.get("paid_amount", 0),
+            "outstandingAmount": float(updated_bill.get("outstanding_amount", 0)) if isinstance(updated_bill.get("outstanding_amount", 0), Decimal) else updated_bill.get("outstanding_amount", 0),
+            "status": updated_bill.get("status", "unpaid"),
+            "payments": updated_bill.get("payments", []),
+            "notes": updated_bill.get("notes", ""),
+            "createdAt": updated_bill.get("created_at"),
+            "updatedAt": updated_bill.get("updated_at")
+        }
+
+        logger.info(f"Deleted payment {payment_id} from bill {bill_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps(bill_response, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "delete_payment")
+
 def test_bill_calculation(event, context):
     """
     Test endpoint to verify bill calculation logic
@@ -1129,6 +1445,14 @@ def lambda_handler(event, context):
         if path.endswith("/payments"):
             if http_method == "POST":
                 return add_payment(event, context)
+            elif http_method == "OPTIONS":
+                return handle_options(event, context)
+        elif "/payments/" in path and not path.endswith("/payments"):
+            # Handle specific payment operations: /bills/{id}/payments/{paymentId}
+            if http_method == "PUT":
+                return update_payment(event, context)
+            elif http_method == "DELETE":
+                return delete_payment(event, context)
             elif http_method == "OPTIONS":
                 return handle_options(event, context)
     elif path.startswith("/bills/"):

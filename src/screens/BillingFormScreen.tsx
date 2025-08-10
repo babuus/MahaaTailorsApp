@@ -27,7 +27,8 @@ import {
   ReceivedItemTemplate,
   BillFormData,
   BillItem,
-  ReceivedItem
+  ReceivedItem,
+  Payment
 } from '../types';
 import { useFormValidation } from '../hooks/useFormValidation';
 import {
@@ -70,6 +71,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentBill, setCurrentBill] = useState<any>(null);
+  const [payments, setPayments] = useState<Omit<Payment, 'id' | 'createdAt'>[]>([]);
 
   // Form validation
   const {
@@ -279,6 +281,52 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
     setReceivedItems(prev => prev.filter((_, i) => i !== index));
   }, []);
 
+  // Payment handlers for create mode
+  const handleAddPayment = useCallback(() => {
+    const newPayment: Omit<Payment, 'id' | 'createdAt'> = {
+      amount: 0,
+      paymentDate: new Date().toISOString().split('T')[0],
+      paymentMethod: 'cash',
+      notes: '',
+    };
+    setPayments(prev => [...prev, newPayment]);
+  }, []);
+
+  const handleUpdatePayment = useCallback((index: number, field: string, value: any) => {
+    setPayments(prev => prev.map((payment, i) => {
+      if (i === index) {
+        const updatedPayment = { ...payment, [field]: value };
+        
+        // Validate payment amount doesn't exceed remaining balance
+        if (field === 'amount') {
+          const otherPaymentsTotal = prev
+            .filter((_, idx) => idx !== index)
+            .reduce((sum, p) => sum + p.amount, 0);
+          const maxAmount = totalAmount - otherPaymentsTotal;
+          
+          if (value > maxAmount) {
+            Alert.alert(
+              'Invalid Amount',
+              `Payment amount cannot exceed ₹${maxAmount.toFixed(2)} (remaining balance)`
+            );
+            return payment; // Don't update if invalid
+          }
+        }
+        
+        return updatedPayment;
+      }
+      return payment;
+    }));
+  }, [totalAmount]);
+
+  const handleRemovePayment = useCallback((index: number) => {
+    setPayments(prev => prev.filter((_, i) => i !== index));
+  }, []);
+
+  // Calculate payment totals for create mode
+  const totalPaidAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
+  const outstandingAmount = totalAmount - totalPaidAmount;
+
   // Handle bill updates from payment component
   const handleBillUpdate = useCallback((updatedBill: any) => {
     console.log('BillingFormScreen - Received bill update:', {
@@ -351,6 +399,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
         deliveryDate: formData.deliveryDate,
         items: processedItems,
         receivedItems: processedReceivedItems,
+        payments: mode === 'add' ? payments.filter(p => p.amount > 0) : undefined, // Only include payments for create mode
         notes: formData.notes || '',
       };
 
@@ -705,6 +754,138 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
               testID="notes-input"
             />
           </ModernCard>
+
+          {/* Payment Section - Show for create mode */}
+          {mode === 'add' && (
+            <ModernCard style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Payments (Optional)</Text>
+                <TouchableOpacity
+                  style={styles.addButton}
+                  onPress={handleAddPayment}
+                  testID="add-payment-button"
+                >
+                  <MaterialIcon name="add" size={20} color="#007AFF" />
+                  <Text style={styles.addButtonText}>Add Payment</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Payment Summary */}
+              {totalAmount > 0 && (
+                <View style={styles.paymentSummary}>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Total Amount:</Text>
+                    <Text style={styles.summaryValue}>₹{totalAmount.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryLabel}>Paid Amount:</Text>
+                    <Text style={[styles.summaryValue, { color: '#34C759' }]}>
+                      ₹{totalPaidAmount.toFixed(2)}
+                    </Text>
+                  </View>
+                  <View style={[styles.summaryRow, styles.outstandingRow]}>
+                    <Text style={styles.summaryLabel}>Outstanding:</Text>
+                    <Text style={[styles.summaryValue, { 
+                      color: outstandingAmount > 0 ? '#FF3B30' : '#34C759',
+                      fontWeight: '700',
+                    }]}>
+                      ₹{outstandingAmount.toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Payment List */}
+              {payments.map((payment, index) => (
+                <View key={index} style={styles.paymentCard}>
+                  <View style={styles.paymentHeader}>
+                    <Text style={styles.paymentTitle}>Payment {index + 1}</Text>
+                    <TouchableOpacity
+                      style={styles.removeButton}
+                      onPress={() => handleRemovePayment(index)}
+                      testID={`remove-payment-${index}`}
+                    >
+                      <MaterialIcon name="close" size={20} color="#FF3B30" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.paymentRow}>
+                    <View style={styles.paymentField}>
+                      <Text style={styles.fieldLabel}>Amount *</Text>
+                      <TextInput
+                        style={styles.numberInput}
+                        value={payment.amount.toString()}
+                        onChangeText={(text) => handleUpdatePayment(index, 'amount', parseFloat(text) || 0)}
+                        keyboardType="numeric"
+                        placeholder="0.00"
+                        testID={`payment-amount-${index}`}
+                      />
+                    </View>
+
+                    <View style={styles.paymentField}>
+                      <Text style={styles.fieldLabel}>Date *</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={payment.paymentDate}
+                        onChangeText={(text) => handleUpdatePayment(index, 'paymentDate', text)}
+                        placeholder="YYYY-MM-DD"
+                        testID={`payment-date-${index}`}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={styles.paymentField}>
+                    <Text style={styles.fieldLabel}>Payment Method *</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <View style={styles.methodButtons}>
+                        {['cash', 'card', 'upi', 'bank_transfer', 'other'].map((method) => (
+                          <TouchableOpacity
+                            key={method}
+                            style={[
+                              styles.methodButton,
+                              payment.paymentMethod === method && styles.methodButtonActive,
+                            ]}
+                            onPress={() => handleUpdatePayment(index, 'paymentMethod', method)}
+                            testID={`payment-method-${method}-${index}`}
+                          >
+                            <Text style={[
+                              styles.methodButtonText,
+                              payment.paymentMethod === method && styles.methodButtonTextActive,
+                            ]}>
+                              {method.charAt(0).toUpperCase() + method.slice(1).replace('_', ' ')}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+                  </View>
+
+                  <View style={styles.paymentField}>
+                    <Text style={styles.fieldLabel}>Notes</Text>
+                    <TextInput
+                      style={[styles.textInput, styles.notesInput]}
+                      value={payment.notes}
+                      onChangeText={(text) => handleUpdatePayment(index, 'notes', text)}
+                      placeholder="Payment notes (optional)"
+                      multiline
+                      numberOfLines={2}
+                      testID={`payment-notes-${index}`}
+                    />
+                  </View>
+                </View>
+              ))}
+
+              {payments.length === 0 && (
+                <View style={styles.emptyState}>
+                  <MaterialIcon name="payment" size={48} color="#CCC" />
+                  <Text style={styles.emptyStateText}>No payments added</Text>
+                  <Text style={styles.emptyStateSubtext}>
+                    Add payments to track bill status from creation
+                  </Text>
+                </View>
+              )}
+            </ModernCard>
+          )}
 
           {/* Payment Tracking - Only show when editing existing bill */}
           {mode === 'edit' && currentBill && (
@@ -1205,6 +1386,96 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     height: 1,
     backgroundColor: '#E1E1E1',
     marginVertical: 8,
+  },
+  // Payment section styles
+  paymentSummary: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 16,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  outstandingRow: {
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E1E1E1',
+    marginBottom: 0,
+  },
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: isDarkMode ? '#FFFFFF' : '#000000',
+  },
+  paymentCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+  },
+  paymentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  paymentTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: isDarkMode ? '#FFFFFF' : '#000000',
+  },
+  paymentRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  paymentField: {
+    flex: 1,
+  },
+  textInput: {
+    fontSize: 14,
+    color: isDarkMode ? '#FFFFFF' : '#000000',
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#3A3A3C' : '#E1E1E1',
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFFFFF',
+  },
+  methodButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  methodButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    backgroundColor: '#FFF',
+  },
+  methodButtonActive: {
+    borderColor: '#007AFF',
+    backgroundColor: '#F0F8FF',
+  },
+  methodButtonText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  methodButtonTextActive: {
+    color: '#007AFF',
+    fontWeight: '500',
   },
 });
 
