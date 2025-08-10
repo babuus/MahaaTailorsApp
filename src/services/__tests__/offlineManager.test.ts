@@ -1,181 +1,527 @@
+import OfflineManager from '../offlineManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { offlineManager, OfflineAction } from '../offlineManager';
+import NetInfo from '@react-native-community/netinfo';
+import { createMockBill, createMockBillItem } from '../../test-utils/mockData';
 
-// Mock AsyncStorage
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  setItem: jest.fn(),
-  getItem: jest.fn(),
-  removeItem: jest.fn(),
-  getAllKeys: jest.fn(),
-  multiRemove: jest.fn(),
-}));
+// Mock dependencies
+jest.mock('@react-native-async-storage/async-storage');
+jest.mock('@react-native-community/netinfo');
 
-// Mock network service
-jest.mock('../networkService', () => ({
-  networkService: {
-    isOnline: jest.fn(() => true),
-    addListener: jest.fn(() => () => {}),
-  },
-}));
-
-// Mock API service
-jest.mock('../api', () => ({
-  apiService: {
-    createCustomer: jest.fn(),
-    updateCustomer: jest.fn(),
-    deleteCustomer: jest.fn(),
-    createMeasurementConfig: jest.fn(),
-    updateMeasurementConfig: jest.fn(),
-    deleteMeasurementConfig: jest.fn(),
-  },
-}));
+const mockAsyncStorage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+const mockNetInfo = NetInfo as jest.Mocked<typeof NetInfo>;
 
 describe('OfflineManager', () => {
+  let offlineManager: typeof OfflineManager;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    
+    // Reset singleton instance
+    (OfflineManager as any).instance = undefined;
+    offlineManager = OfflineManager;
+
+    // Default mock implementations
+    mockAsyncStorage.getItem.mockResolvedValue(null);
+    mockAsyncStorage.setItem.mockResolvedValue();
+    mockAsyncStorage.multiRemove.mockResolvedValue();
+    
+    mockNetInfo.addEventListener.mockReturnValue(() => {});
   });
 
-  describe('Offline Queue Management', () => {
-    it('should add action to offline queue', async () => {
-      const mockQueue: OfflineAction[] = [];
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(mockQueue));
-      (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+  describe('Network State Management', () => {
+    it('should initialize with default network state', () => {
+      const networkState = offlineManager.getNetworkState();
+      
+      expect(networkState).toEqual({
+        isConnected: false,
+        isInternetReachable: false,
+        type: 'unknown',
+      });
+    });
 
-      await offlineManager.addToOfflineQueue({
-        type: 'CREATE',
-        entity: 'customer',
-        data: { name: 'Test Customer' },
-        maxRetries: 3,
+    it('should update network state when connection changes', () => {
+      const mockListener = jest.fn();
+      offlineManager.addNetworkListener(mockListener);
+
+      // Simulate network state change
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
       });
 
-      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-        'offline_queue',
-        expect.stringContaining('"type":"CREATE"')
+      expect(mockListener).toHaveBeenCalledWith({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+    });
+
+    it('should return correct online status', () => {
+      // Initially offline
+      expect(offlineManager.isOnline()).toBe(false);
+
+      // Simulate going online
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      expect(offlineManager.isOnline()).toBe(true);
+    });
+
+    it('should remove network listeners correctly', () => {
+      const mockListener = jest.fn();
+      const removeListener = offlineManager.addNetworkListener(mockListener);
+
+      removeListener();
+
+      // Simulate network state change
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      expect(mockListener).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Offline Data Management', () => {
+    it('should save and retrieve offline data', async () => {
+      const mockData = {
+        bills: [createMockBill()],
+        billingConfigItems: [],
+        receivedItemTemplates: [],
+        customers: [],
+        lastSyncTimestamp: Date.now(),
+      };
+
+      await offlineManager.saveOfflineData(mockData);
+
+      expect(mockAsyncStorage.setItem).toHaveBeenCalledWith(
+        '@billing_offline_data',
+        JSON.stringify(mockData)
       );
     });
 
-    it('should get offline queue', async () => {
-      const mockQueue: OfflineAction[] = [
+    it('should merge partial data updates', async () => {
+      const existingData = {
+        bills: [createMockBill({ id: '1' })],
+        billingConfigItems: [],
+        receivedItemTemplates: [],
+        customers: [],
+        lastSyncTimestamp: 1000,
+      };
+
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(existingData));
+
+      const partialUpdate = {
+        bills: [createMockBill({ id: '2' })],
+      };
+
+      await offlineManager.saveOfflineData(partialUpdate);
+
+      const savedData = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(savedData.bills).toEqual(partialUpdate.bills);
+      expect(savedData.billingConfigItems).toEqual(existingData.billingConfigItems);
+      expect(savedData.lastSyncTimestamp).toBeGreaterThan(existingData.lastSyncTimestamp);
+    });
+
+    it('should handle missing offline data gracefully', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue(null);
+
+      const data = await offlineManager.getOfflineData();
+
+      expect(data).toBeNull();
+    });
+
+    it('should handle corrupted offline data', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue('invalid json');
+
+      const data = await offlineManager.getOfflineData();
+
+      expect(data).toBeNull();
+    });
+
+    it('should clear all offline data', async () => {
+      await offlineManager.clearOfflineData();
+
+      expect(mockAsyncStorage.multiRemove).toHaveBeenCalledWith([
+        '@billing_offline_data',
+        '@billing_pending_actions',
+        '@billing_last_sync',
+      ]);
+    });
+  });
+
+  describe('Pending Actions Management', () => {
+    it('should add pending actions', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue('[]');
+
+      await offlineManager.addPendingAction({
+        type: 'CREATE',
+        entity: 'bill',
+        data: { customerId: 'customer1' },
+      });
+
+      const savedActions = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(savedActions).toHaveLength(1);
+      expect(savedActions[0]).toMatchObject({
+        type: 'CREATE',
+        entity: 'bill',
+        data: { customerId: 'customer1' },
+        retryCount: 0,
+      });
+      expect(savedActions[0].id).toMatch(/^offline_/);
+      expect(savedActions[0].timestamp).toBeInstanceOf(Date);
+    });
+
+    it('should retrieve pending actions', async () => {
+      const mockActions = [
         {
-          id: 'test-id',
+          id: 'action1',
           type: 'CREATE',
-          entity: 'customer',
-          data: { name: 'Test Customer' },
+          entity: 'bill',
+          data: { customerId: 'customer1' },
           timestamp: new Date(),
           retryCount: 0,
-          maxRetries: 3,
         },
       ];
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(mockQueue));
 
-      const queue = await offlineManager.getOfflineQueue();
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(mockActions));
 
-      expect(queue).toHaveLength(1);
-      expect(queue[0].type).toBe('CREATE');
-      expect(queue[0].entity).toBe('customer');
+      const actions = await offlineManager.getPendingActions();
+
+      expect(actions).toEqual(mockActions);
     });
 
-    it('should return empty array when no queue exists', async () => {
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    it('should remove pending actions', async () => {
+      const mockActions = [
+        { id: 'action1', type: 'CREATE', entity: 'bill', data: {} },
+        { id: 'action2', type: 'UPDATE', entity: 'bill', data: {} },
+      ];
 
-      const queue = await offlineManager.getOfflineQueue();
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(mockActions));
 
-      expect(queue).toEqual([]);
+      await offlineManager.removePendingAction('action1');
+
+      const savedActions = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(savedActions).toHaveLength(1);
+      expect(savedActions[0].id).toBe('action2');
+    });
+
+    it('should update pending actions', async () => {
+      const mockActions = [
+        { id: 'action1', type: 'CREATE', entity: 'bill', data: {}, retryCount: 0 },
+      ];
+
+      mockAsyncStorage.getItem.mockResolvedValue(JSON.stringify(mockActions));
+
+      await offlineManager.updatePendingAction('action1', { retryCount: 1 });
+
+      const savedActions = JSON.parse(mockAsyncStorage.setItem.mock.calls[0][1]);
+      expect(savedActions[0].retryCount).toBe(1);
+    });
+
+    it('should handle empty pending actions', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue(null);
+
+      const actions = await offlineManager.getPendingActions();
+
+      expect(actions).toEqual([]);
     });
   });
 
-  describe('Cache Management', () => {
-    it('should cache data with TTL', async () => {
-      (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+  describe('Sync Management', () => {
+    it('should not sync when offline', async () => {
+      // Ensure offline state
+      expect(offlineManager.isOnline()).toBe(false);
 
-      await offlineManager.setCachedData('test-key', { data: 'test' }, 60000);
+      const result = await offlineManager.syncPendingActions();
 
-      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-        'offline_cache_test-key',
-        expect.stringContaining('"data":{"data":"test"}')
+      expect(result).toEqual({
+        success: false,
+        syncedActions: 0,
+        failedActions: [],
+        conflicts: [],
+      });
+    });
+
+    it('should not sync when already syncing', async () => {
+      // Mock online state
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      // Start first sync
+      const syncPromise1 = offlineManager.syncPendingActions();
+      
+      // Try to start second sync while first is in progress
+      const syncPromise2 = offlineManager.syncPendingActions();
+
+      const [result1, result2] = await Promise.all([syncPromise1, syncPromise2]);
+
+      expect(result2).toEqual({
+        success: false,
+        syncedActions: 0,
+        failedActions: [],
+        conflicts: [],
+      });
+    });
+
+    it('should track sync status correctly', () => {
+      expect(offlineManager.isSyncInProgress()).toBe(false);
+    });
+
+    it('should notify sync listeners', async () => {
+      const mockListener = jest.fn();
+      offlineManager.addSyncListener(mockListener);
+
+      // Mock online state
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      mockAsyncStorage.getItem.mockResolvedValue('[]'); // No pending actions
+
+      await offlineManager.syncPendingActions();
+
+      expect(mockListener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          syncedActions: 0,
+          failedActions: [],
+          conflicts: [],
+        })
       );
     });
 
-    it('should retrieve cached data', async () => {
-      const cacheEntry = {
-        data: { test: 'data' },
-        timestamp: new Date().toISOString(),
-        syncStatus: 'synced',
-      };
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(cacheEntry));
+    it('should remove sync listeners correctly', async () => {
+      const mockListener = jest.fn();
+      const removeListener = offlineManager.addSyncListener(mockListener);
 
-      const result = await offlineManager.getCachedData('test-key');
+      removeListener();
 
-      expect(result).toBeTruthy();
-      expect(result?.data).toEqual({ test: 'data' });
-    });
+      // Mock online state and sync
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
 
-    it('should return null for expired cache', async () => {
-      const expiredEntry = {
-        data: { test: 'data' },
-        timestamp: new Date().toISOString(),
-        expiresAt: new Date(Date.now() - 1000).toISOString(), // Expired 1 second ago
-        syncStatus: 'synced',
-      };
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(expiredEntry));
-      (AsyncStorage.removeItem as jest.Mock).mockResolvedValue(undefined);
+      mockAsyncStorage.getItem.mockResolvedValue('[]');
 
-      const result = await offlineManager.getCachedData('test-key');
+      await offlineManager.syncPendingActions();
 
-      expect(result).toBeNull();
-      expect(AsyncStorage.removeItem).toHaveBeenCalledWith('offline_cache_test-key');
+      expect(mockListener).not.toHaveBeenCalled();
     });
   });
 
-  describe('Convenience Methods', () => {
-    it('should cache customers', async () => {
-      const customers = [
-        {
-          id: '1',
-          personalDetails: { name: 'Test Customer', phone: '123456789' },
-          measurements: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ];
-      (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+  describe('Utility Methods', () => {
+    it('should get last sync timestamp', async () => {
+      const timestamp = Date.now();
+      mockAsyncStorage.getItem.mockResolvedValue(timestamp.toString());
 
-      await offlineManager.cacheCustomers(customers);
+      const result = await offlineManager.getLastSyncTimestamp();
 
-      expect(AsyncStorage.setItem).toHaveBeenCalledWith(
-        'offline_cache_customers',
-        expect.stringContaining('"personalDetails"')
-      );
+      expect(result).toBe(timestamp);
     });
 
-    it('should get cached customers', async () => {
-      const customers = [
-        {
-          id: '1',
-          personalDetails: { name: 'Test Customer', phone: '123456789' },
-          measurements: [],
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-      ];
-      const cacheEntry = {
-        data: customers,
-        timestamp: new Date().toISOString(),
-        syncStatus: 'synced',
+    it('should return 0 for missing sync timestamp', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue(null);
+
+      const result = await offlineManager.getLastSyncTimestamp();
+
+      expect(result).toBe(0);
+    });
+
+    it('should check for pending changes', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue('[{\"id\": \"action1\"}]');
+
+      const hasPending = await offlineManager.hasPendingChanges();
+
+      expect(hasPending).toBe(true);
+    });
+
+    it('should return false for no pending changes', async () => {
+      mockAsyncStorage.getItem.mockResolvedValue('[]');
+
+      const hasPending = await offlineManager.hasPendingChanges();
+
+      expect(hasPending).toBe(false);
+    });
+
+    it('should calculate offline data size', async () => {
+      const mockOfflineData = {
+        bills: [createMockBill()],
+        billingConfigItems: [],
+        receivedItemTemplates: [],
+        customers: [],
+        lastSyncTimestamp: 0,
       };
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify(cacheEntry));
+      const mockPendingActions = [{ id: 'action1', type: 'CREATE' }];
 
-      const result = await offlineManager.getCachedCustomers();
+      mockAsyncStorage.getItem
+        .mockResolvedValueOnce(JSON.stringify(mockOfflineData))
+        .mockResolvedValueOnce(JSON.stringify(mockPendingActions));
 
-      expect(result).toEqual(customers);
+      const size = await offlineManager.getOfflineDataSize();
+
+      const expectedSize = JSON.stringify(mockOfflineData).length + 
+                          JSON.stringify(mockPendingActions).length;
+      expect(size).toBe(expectedSize);
+    });
+  });
+
+  describe('Data Validation', () => {
+    it('should validate correct offline data structure', async () => {
+      const validData = {
+        bills: [],
+        billingConfigItems: [],
+        receivedItemTemplates: [],
+        customers: [],
+        lastSyncTimestamp: 0,
+      };
+
+      mockAsyncStorage.getItem
+        .mockResolvedValueOnce(JSON.stringify(validData))
+        .mockResolvedValueOnce('[]');
+
+      const result = await offlineManager.validateOfflineData();
+
+      expect(result.isValid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
-    it('should return null when no cached customers exist', async () => {
-      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    it('should detect corrupted offline data', async () => {
+      const invalidData = {
+        bills: 'not an array',
+        billingConfigItems: [],
+        receivedItemTemplates: [],
+        customers: [],
+        lastSyncTimestamp: 0,
+      };
 
-      const result = await offlineManager.getCachedCustomers();
+      mockAsyncStorage.getItem
+        .mockResolvedValueOnce(JSON.stringify(invalidData))
+        .mockResolvedValueOnce('[]');
 
-      expect(result).toBeNull();
+      const result = await offlineManager.validateOfflineData();
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Bills data is corrupted');
+    });
+
+    it('should handle validation errors gracefully', async () => {
+      mockAsyncStorage.getItem.mockRejectedValue(new Error('Storage error'));
+
+      const result = await offlineManager.validateOfflineData();
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Data validation error: Storage error');
+    });
+
+    it('should validate pending actions structure', async () => {
+      mockAsyncStorage.getItem
+        .mockResolvedValueOnce('null')
+        .mockResolvedValueOnce('not valid json');
+
+      const result = await offlineManager.validateOfflineData();
+
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Pending actions data is corrupted');
+    });
+  });
+
+  describe('Auto-sync on Network Recovery', () => {
+    it('should trigger sync when coming back online', () => {
+      const syncSpy = jest.spyOn(offlineManager, 'syncPendingActions');
+
+      // Simulate going from offline to online
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      
+      // First offline
+      netInfoCallback({
+        isConnected: false,
+        isInternetReachable: false,
+        type: 'none',
+      });
+
+      // Then online
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      expect(syncSpy).toHaveBeenCalled();
+    });
+
+    it('should not trigger sync when already online', () => {
+      const syncSpy = jest.spyOn(offlineManager, 'syncPendingActions');
+
+      // Simulate staying online
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'wifi',
+      });
+
+      netInfoCallback({
+        isConnected: true,
+        isInternetReachable: true,
+        type: 'cellular',
+      });
+
+      expect(syncSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle AsyncStorage errors gracefully', async () => {
+      mockAsyncStorage.getItem.mockRejectedValue(new Error('Storage error'));
+
+      const data = await offlineManager.getOfflineData();
+
+      expect(data).toBeNull();
+    });
+
+    it('should handle save errors gracefully', async () => {
+      mockAsyncStorage.setItem.mockRejectedValue(new Error('Save error'));
+
+      await expect(offlineManager.saveOfflineData({ bills: [] })).rejects.toThrow('Save error');
+    });
+
+    it('should handle network listener errors gracefully', () => {
+      const mockListener = jest.fn().mockImplementation(() => {
+        throw new Error('Listener error');
+      });
+      
+      offlineManager.addNetworkListener(mockListener);
+
+      // Should not throw when listener throws
+      const netInfoCallback = mockNetInfo.addEventListener.mock.calls[0][0];
+      expect(() => {
+        netInfoCallback({
+          isConnected: true,
+          isInternetReachable: true,
+          type: 'wifi',
+        });
+      }).not.toThrow();
     });
   });
 });

@@ -87,6 +87,30 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  BillingConfigItemsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-BillingConfigItems-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: config_item_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: config_item_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  ReceivedItemTemplatesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-ReceivedItemTemplates-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: template_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: template_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
   AppUpdatesTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -128,7 +152,7 @@ Resources:
         MaxAge: "'600'"
       EndpointConfiguration:
         Type: REGIONAL
-
+ 
   # Lambda Functions with SAM Events (handles CORS automatically)
   CustomerManagementLambda:
     Type: AWS::Serverless::Function
@@ -176,6 +200,12 @@ Resources:
             RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}
             Method: delete
+        GetCustomerById:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /customers/{id}
+            Method: get
         CheckCustomerExists:
           Type: Api
           Properties:
@@ -339,10 +369,16 @@ Resources:
             TableName: !Ref BillsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref CustomersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BillingConfigItemsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ReceivedItemTemplatesTable
       Environment:
         Variables:
           BILLS_TABLE_NAME: !Ref BillsTable
           CUSTOMERS_TABLE_NAME: !Ref CustomersTable
+          BILLING_CONFIG_ITEMS_TABLE_NAME: !Ref BillingConfigItemsTable
+          RECEIVED_ITEM_TEMPLATES_TABLE_NAME: !Ref ReceivedItemTemplatesTable
       Events:
         GetBills:
           Type: Api
@@ -362,6 +398,12 @@ Resources:
             RestApiId: !Ref ApiGatewayApi
             Path: /bills/{id}
             Method: put
+        GetBillById:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}
+            Method: get
         DeleteBill:
           Type: Api
           Properties:
@@ -391,6 +433,90 @@ Resources:
           Properties:
             RestApiId: !Ref ApiGatewayApi
             Path: /customers/{id}/measurements/{measurementId}
+            Method: options
+        AddPayment:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/payments
+            Method: post
+        PaymentsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/payments
+            Method: options
+        GetBillingConfigItems:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /billing-config-items
+            Method: get
+        AddBillingConfigItem:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /billing-config-items
+            Method: post
+        UpdateBillingConfigItem:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /billing-config-items/{id}
+            Method: put
+        DeleteBillingConfigItem:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /billing-config-items/{id}
+            Method: delete
+        BillingConfigItemsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /billing-config-items
+            Method: options
+        BillingConfigItemIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /billing-config-items/{id}
+            Method: options
+        GetReceivedItemTemplates:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /received-item-templates
+            Method: get
+        AddReceivedItemTemplate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /received-item-templates
+            Method: post
+        UpdateReceivedItemTemplate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /received-item-templates/{id}
+            Method: put
+        DeleteReceivedItemTemplate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /received-item-templates/{id}
+            Method: delete
+        ReceivedItemTemplatesOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /received-item-templates
+            Method: options
+        ReceivedItemTemplateIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /received-item-templates/{id}
             Method: options
 
   AppUpdatesLambda:

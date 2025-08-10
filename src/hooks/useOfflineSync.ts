@@ -1,312 +1,332 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { offlineManager, SyncResult, OfflineAction } from '../services/offlineManager';
-import { networkService } from '../services/networkService';
+import { useState, useEffect, useCallback } from 'react';
+import OfflineManager, { SyncResult, NetworkState, ConflictResolution } from '../services/offlineManager';
 
 export interface OfflineSyncState {
   isOnline: boolean;
   isSyncing: boolean;
+  hasPendingChanges: boolean;
   pendingActions: number;
-  lastSyncAttempt?: Date;
-  lastSuccessfulSync?: Date;
-  syncErrors: Array<{ action: OfflineAction; error: string }>;
+  lastSyncTimestamp: number;
+  lastSuccessfulSync: Date | null;
+  lastSyncAttempt: Date | null;
+  syncResult: SyncResult | null;
+  syncErrors: string[];
+  networkState: NetworkState;
+  conflicts: ConflictResolution[];
+  dataSize: number;
+  isDataValid: boolean;
+  validationErrors: string[];
 }
 
 export interface OfflineSyncActions {
   syncNow: () => Promise<SyncResult>;
+  clearOfflineData: () => Promise<void>;
   clearSyncErrors: () => void;
-  refreshSyncStatus: () => Promise<void>;
+  validateData: () => Promise<{ isValid: boolean; errors: string[] }>;
+  getDataSize: () => Promise<number>;
+  resolveConflicts: (resolution: 'local' | 'server' | 'merge') => Promise<void>;
+  forcSync: () => Promise<SyncResult>;
+  refreshOfflineData: () => Promise<void>;
 }
 
 export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
   const [state, setState] = useState<OfflineSyncState>({
-    isOnline: networkService.isOnline(),
-    isSyncing: false,
+    isOnline: OfflineManager.isOnline(),
+    isSyncing: OfflineManager.isSyncInProgress(),
+    hasPendingChanges: false,
     pendingActions: 0,
+    lastSyncTimestamp: 0,
+    lastSuccessfulSync: null,
+    lastSyncAttempt: null,
+    syncResult: null,
     syncErrors: [],
+    networkState: OfflineManager.getNetworkState(),
+    conflicts: [],
+    dataSize: 0,
+    isDataValid: true,
+    validationErrors: [],
   });
 
-  // Refresh sync status from storage
-  const refreshSyncStatus = useCallback(async () => {
-    try {
-      const syncStatus = await offlineManager.getSyncStatus();
-      const queueSize = await offlineManager.getQueueSize();
-      
-      setState(prev => ({
-        ...prev,
-        pendingActions: queueSize,
-        lastSyncAttempt: syncStatus.lastSyncAttempt,
-        lastSuccessfulSync: syncStatus.lastSuccessfulSync,
-      }));
-    } catch (error) {
-      console.error('Failed to refresh sync status:', error);
-    }
+  const updateState = useCallback((updates: Partial<OfflineSyncState>) => {
+    setState(prev => ({ ...prev, ...updates }));
   }, []);
 
-  // Sync now function
-  const syncNow = useCallback(async (): Promise<SyncResult> => {
-    if (!networkService.isOnline()) {
-      throw new Error('Cannot sync while offline');
-    }
-
-    setState(prev => ({ ...prev, isSyncing: true, syncErrors: [] }));
-
+  const loadInitialData = useCallback(async () => {
     try {
-      const result = await offlineManager.syncOfflineData();
-      
-      setState(prev => ({
-        ...prev,
-        isSyncing: false,
-        syncErrors: result.errors,
-      }));
+      const [
+        hasPendingChanges,
+        lastSyncTimestamp,
+        pendingActions,
+        dataSize,
+        validationResult
+      ] = await Promise.all([
+        OfflineManager.hasPendingChanges(),
+        OfflineManager.getLastSyncTimestamp(),
+        OfflineManager.getPendingActions().then(actions => actions.length),
+        OfflineManager.getOfflineDataSize(),
+        OfflineManager.validateOfflineData(),
+      ]);
 
-      // Refresh status after sync
-      await refreshSyncStatus();
+      updateState({
+        hasPendingChanges,
+        pendingActions,
+        lastSyncTimestamp,
+        lastSuccessfulSync: lastSyncTimestamp > 0 ? new Date(lastSyncTimestamp) : null,
+        dataSize,
+        isDataValid: validationResult.isValid,
+        validationErrors: validationResult.errors,
+      });
+    } catch (error) {
+      console.error('Error loading initial offline sync data:', error);
+      updateState({
+        syncErrors: ['Failed to load offline data'],
+      });
+    }
+  }, [updateState]);
+
+  useEffect(() => {
+    loadInitialData();
+
+    // Set up network state listener
+    const removeNetworkListener = OfflineManager.addNetworkListener((networkState) => {
+      updateState({
+        isOnline: networkState.isConnected && networkState.isInternetReachable,
+        networkState,
+      });
+    });
+
+    // Set up sync listener
+    const removeSyncListener = OfflineManager.addSyncListener((syncResult) => {
+      updateState({
+        isSyncing: false,
+        syncResult,
+        lastSyncTimestamp: Date.now(),
+      });
+      
+      // Refresh pending changes status
+      OfflineManager.hasPendingChanges().then(hasPendingChanges => {
+        updateState({ hasPendingChanges });
+      });
+    });
+
+    return () => {
+      removeNetworkListener();
+      removeSyncListener();
+    };
+  }, [loadInitialData, updateState]);
+
+  // Periodically check sync status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const isSyncing = OfflineManager.isSyncInProgress();
+      if (state.isSyncing !== isSyncing) {
+        updateState({ isSyncing });
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [state.isSyncing, updateState]);
+
+  const syncNow = useCallback(async (): Promise<SyncResult> => {
+    updateState({ 
+      isSyncing: true, 
+      syncResult: null, 
+      lastSyncAttempt: new Date(),
+      syncErrors: [] 
+    });
+    
+    try {
+      const result = await OfflineManager.syncPendingActions();
+      
+      updateState({
+        lastSuccessfulSync: result.success ? new Date() : state.lastSuccessfulSync,
+        conflicts: result.conflicts,
+        syncErrors: result.success ? [] : ['Sync completed with errors'],
+      });
+      
+      // Refresh data after sync
+      await refreshOfflineData();
       
       return result;
     } catch (error) {
-      setState(prev => ({
-        ...prev,
-        isSyncing: false,
-        syncErrors: [{ 
-          action: {} as OfflineAction, 
-          error: error instanceof Error ? error.message : String(error) 
-        }],
-      }));
+      console.error('Error during manual sync:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown sync error';
+      const errorResult: SyncResult = {
+        success: false,
+        syncedActions: 0,
+        failedActions: [],
+        conflicts: [],
+      };
+      
+      updateState({ 
+        isSyncing: false, 
+        syncResult: errorResult,
+        syncErrors: [errorMessage]
+      });
+      
+      return errorResult;
+    }
+  }, [updateState, state.lastSuccessfulSync]);
+
+  const forcSync = useCallback(async (): Promise<SyncResult> => {
+    // Force sync even if already syncing
+    updateState({ 
+      isSyncing: true, 
+      syncResult: null,
+      lastSyncAttempt: new Date(),
+      syncErrors: []
+    });
+    
+    try {
+      const result = await OfflineManager.syncPendingActions();
+      
+      updateState({
+        lastSuccessfulSync: result.success ? new Date() : state.lastSuccessfulSync,
+        conflicts: result.conflicts,
+        syncErrors: result.success ? [] : ['Force sync completed with errors'],
+      });
+      
+      await refreshOfflineData();
+      return result;
+    } catch (error) {
+      console.error('Error during force sync:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown force sync error';
+      const errorResult: SyncResult = {
+        success: false,
+        syncedActions: 0,
+        failedActions: [],
+        conflicts: [],
+      };
+      
+      updateState({ 
+        isSyncing: false, 
+        syncResult: errorResult,
+        syncErrors: [errorMessage]
+      });
+      
+      return errorResult;
+    }
+  }, [updateState, state.lastSuccessfulSync]);
+
+  const clearOfflineData = useCallback(async (): Promise<void> => {
+    try {
+      await OfflineManager.clearOfflineData();
+      updateState({
+        hasPendingChanges: false,
+        pendingActions: 0,
+        lastSyncTimestamp: 0,
+        lastSuccessfulSync: null,
+        lastSyncAttempt: null,
+        syncResult: null,
+        syncErrors: [],
+        conflicts: [],
+        dataSize: 0,
+        isDataValid: true,
+        validationErrors: [],
+      });
+    } catch (error) {
+      console.error('Error clearing offline data:', error);
+      updateState({
+        syncErrors: ['Failed to clear offline data'],
+      });
       throw error;
     }
-  }, [refreshSyncStatus]);
+  }, [updateState]);
 
-  // Clear sync errors
   const clearSyncErrors = useCallback(() => {
-    setState(prev => ({ ...prev, syncErrors: [] }));
-  }, []);
+    updateState({ syncErrors: [] });
+  }, [updateState]);
 
-  useEffect(() => {
-    // Initialize sync status
-    refreshSyncStatus();
+  const validateData = useCallback(async () => {
+    try {
+      const result = await OfflineManager.validateOfflineData();
+      updateState({
+        isDataValid: result.isValid,
+        validationErrors: result.errors,
+      });
+      return result;
+    } catch (error) {
+      console.error('Error validating data:', error);
+      const errorResult = {
+        isValid: false,
+        errors: ['Failed to validate offline data'],
+      };
+      updateState({
+        isDataValid: false,
+        validationErrors: errorResult.errors,
+      });
+      return errorResult;
+    }
+  }, [updateState]);
 
-    // Listen to network changes
-    const unsubscribeNetwork = networkService.addListener((networkState) => {
-      setState(prev => ({
-        ...prev,
-        isOnline: networkService.isOnline(),
-      }));
-    });
+  const getDataSize = useCallback(async () => {
+    try {
+      const size = await OfflineManager.getOfflineDataSize();
+      updateState({ dataSize: size });
+      return size;
+    } catch (error) {
+      console.error('Error getting data size:', error);
+      return 0;
+    }
+  }, [updateState]);
 
-    // Listen to sync results
-    const unsubscribeSync = offlineManager.addSyncListener(async (result) => {
-      setState(prev => ({
-        ...prev,
-        isSyncing: false,
-        syncErrors: result.errors,
-      }));
-      
-      // Refresh status after sync - use inline async function to avoid dependency issues
-      try {
-        const syncStatus = await offlineManager.getSyncStatus();
-        const queueSize = await offlineManager.getQueueSize();
-        
-        setState(prev => ({
-          ...prev,
-          pendingActions: queueSize,
-          lastSyncAttempt: syncStatus.lastSyncAttempt,
-          lastSuccessfulSync: syncStatus.lastSuccessfulSync,
-        }));
-      } catch (error) {
-        console.error('Failed to refresh sync status after sync:', error);
+  const resolveConflicts = useCallback(async (resolution: 'local' | 'server' | 'merge') => {
+    try {
+      for (const conflict of state.conflicts) {
+        await OfflineManager.resolveConflict(conflict, resolution);
       }
-    });
+      
+      updateState({ conflicts: [] });
+      await refreshOfflineData();
+    } catch (error) {
+      console.error('Error resolving conflicts:', error);
+      updateState({
+        syncErrors: [...state.syncErrors, 'Failed to resolve conflicts'],
+      });
+    }
+  }, [state.conflicts, state.syncErrors, updateState]);
 
-    // Start auto-sync
-    offlineManager.startAutoSync();
+  const refreshOfflineData = useCallback(async () => {
+    try {
+      const [
+        hasPendingChanges,
+        pendingActions,
+        dataSize,
+        validationResult
+      ] = await Promise.all([
+        OfflineManager.hasPendingChanges(),
+        OfflineManager.getPendingActions().then(actions => actions.length),
+        OfflineManager.getOfflineDataSize(),
+        OfflineManager.validateOfflineData(),
+      ]);
 
-    return () => {
-      unsubscribeNetwork();
-      unsubscribeSync();
-    };
-  }, []); // Remove refreshSyncStatus from dependencies
+      updateState({
+        hasPendingChanges,
+        pendingActions,
+        dataSize,
+        isDataValid: validationResult.isValid,
+        validationErrors: validationResult.errors,
+      });
+    } catch (error) {
+      console.error('Error refreshing offline data:', error);
+      updateState({
+        syncErrors: [...state.syncErrors, 'Failed to refresh offline data'],
+      });
+    }
+  }, [updateState, state.syncErrors]);
 
+  // Return combined state and actions
   return {
     ...state,
     syncNow,
+    forcSync,
+    clearOfflineData,
     clearSyncErrors,
-    refreshSyncStatus,
+    validateData,
+    getDataSize,
+    resolveConflicts,
+    refreshOfflineData,
   };
 };
 
-// Hook for checking if data is cached/offline
-export const useOfflineData = <T>(
-  key: string,
-  fetchFn: () => Promise<T>,
-  dependencies: any[] = []
-) => {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isFromCache, setIsFromCache] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isOnline, setIsOnline] = useState(networkService.isOnline());
-
-  // Track dependencies to avoid unnecessary re-renders
-  const dependenciesRef = useRef(dependencies);
-  const keyRef = useRef(key);
-  const fetchFnRef = useRef(fetchFn);
-
-  // Update refs when values change
-  useEffect(() => {
-    dependenciesRef.current = dependencies;
-    keyRef.current = key;
-    fetchFnRef.current = fetchFn;
-  });
-
-  const loadData = useCallback(async (forceRefresh = false) => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Try to get cached data first
-      const cachedEntry = await offlineManager.getCachedData<T>(keyRef.current);
-      
-      if (cachedEntry && !forceRefresh) {
-        setData(cachedEntry.data);
-        setIsFromCache(true);
-        setLastUpdated(cachedEntry.timestamp);
-        setLoading(false);
-        
-        // If online, try to refresh in background
-        if (networkService.isOnline()) {
-          try {
-            const freshData = await fetchFnRef.current();
-            await offlineManager.setCachedData(keyRef.current, freshData);
-            setData(freshData);
-            setIsFromCache(false);
-            setLastUpdated(new Date());
-          } catch (refreshError) {
-            // Ignore refresh errors if we have cached data
-            console.warn('Failed to refresh data, using cached version:', refreshError);
-          }
-        }
-      } else {
-        // No cached data or force refresh
-        if (networkService.isOnline()) {
-          const freshData = await fetchFnRef.current();
-          await offlineManager.setCachedData(keyRef.current, freshData);
-          setData(freshData);
-          setIsFromCache(false);
-          setLastUpdated(new Date());
-        } else {
-          throw new Error('No cached data available and device is offline');
-        }
-        setLoading(false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setLoading(false);
-    }
-  }, []);
-
-  // Check if dependencies have actually changed
-  const dependenciesChanged = useMemo(() => {
-    if (!dependenciesRef.current) return true;
-    if (dependenciesRef.current.length !== dependencies.length) return true;
-    return dependenciesRef.current.some((dep, index) => dep !== dependencies[index]);
-  }, [dependencies]);
-
-  // Initial load and dependency-based reloads
-  useEffect(() => {
-    loadData();
-  }, [loadData, dependenciesChanged]);
-
-  // Listen to network changes
-  useEffect(() => {
-    const unsubscribe = networkService.addListener((networkState) => {
-      setIsOnline(networkService.isOnline());
-    });
-
-    return unsubscribe;
-  }, []);
-
-  return {
-    data,
-    loading,
-    error,
-    isFromCache,
-    lastUpdated,
-    refresh: () => loadData(true),
-    refetch: () => loadData(false),
-  };
-};
-
-// Hook for offline-aware mutations
-export const useOfflineMutation = <TData, TVariables>(
-  mutationFn: (variables: TVariables) => Promise<TData>,
-  options: {
-    entity: 'customer' | 'measurementConfig' | 'customerMeasurement';
-    type: 'CREATE' | 'UPDATE' | 'DELETE';
-    maxRetries?: number;
-    onSuccess?: (data: TData) => void;
-    onError?: (error: Error) => void;
-    optimisticUpdate?: (variables: TVariables) => void;
-    rollbackUpdate?: (variables: TVariables) => void;
-  }
-) => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const { isOnline } = useOfflineSync();
-
-  const mutate = useCallback(async (variables: TVariables): Promise<TData | null> => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Apply optimistic update if provided
-      if (options.optimisticUpdate) {
-        options.optimisticUpdate(variables);
-      }
-
-      if (isOnline) {
-        // Online: execute mutation immediately
-        const result = await mutationFn(variables);
-        options.onSuccess?.(result);
-        setLoading(false);
-        return result;
-      } else {
-        // Offline: queue the action
-        await offlineManager.addToOfflineQueue({
-          type: options.type,
-          entity: options.entity,
-          data: variables,
-          maxRetries: options.maxRetries || 3,
-          originalId: (variables as any).id || (variables as any).originalId,
-        });
-
-        // Simulate success for offline operations
-        options.onSuccess?.(variables as any);
-        setLoading(false);
-        return null; // Return null to indicate offline operation
-      }
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      
-      // Rollback optimistic update if provided
-      if (options.rollbackUpdate) {
-        options.rollbackUpdate(variables);
-      }
-      
-      setError(error);
-      options.onError?.(error);
-      setLoading(false);
-      throw error;
-    }
-  }, [mutationFn, options, isOnline]);
-
-  return {
-    mutate,
-    loading,
-    error,
-    reset: () => {
-      setError(null);
-      setLoading(false);
-    },
-  };
-};
+export default useOfflineSync;

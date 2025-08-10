@@ -83,6 +83,183 @@ export interface UpdateMeasurementConfigRequest extends CreateMeasurementConfigR
 }
 
 // ============================================================================
+// BILLING DATA MODELS
+// ============================================================================
+
+export interface Bill {
+  id: string;
+  customerId: string;
+  customer?: Customer; // Populated when needed
+  billNumber: string;
+  billingDate: string;
+  deliveryDate: string;
+  items: BillItem[];
+  receivedItems: ReceivedItem[];
+  totalAmount: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  status: BillStatus;
+  payments: Payment[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BillItem {
+  id: string;
+  type: 'configured' | 'custom';
+  name: string;
+  description?: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  configItemId?: string; // Reference to billing config item
+}
+
+export interface ReceivedItem {
+  id: string;
+  name: string;
+  description?: string;
+  quantity: number;
+  receivedDate: string;
+  returnedDate?: string;
+  status: 'received' | 'returned';
+}
+
+export interface Payment {
+  id: string;
+  amount: number;
+  paymentDate: string;
+  paymentMethod: 'cash' | 'card' | 'upi' | 'bank_transfer' | 'other';
+  notes?: string;
+  createdAt: string;
+}
+
+export type BillStatus = 'draft' | 'unpaid' | 'partially_paid' | 'fully_paid' | 'cancelled';
+
+export interface BillingConfigItem {
+  id: string;
+  name: string;
+  description?: string;
+  price: number;
+  category: 'service' | 'material' | 'alteration';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReceivedItemTemplate {
+  id: string;
+  name: string;
+  description?: string;
+  category: 'sample' | 'material' | 'accessory' | 'other';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Bill form data for create/update operations
+export interface BillFormData {
+  customerId: string;
+  billingDate: string;
+  deliveryDate: string;
+  items: Omit<BillItem, 'id' | 'totalPrice'>[];
+  receivedItems: Omit<ReceivedItem, 'id'>[];
+  notes?: string;
+}
+
+// Bill creation request
+export interface CreateBillRequest {
+  customerId: string;
+  billingDate: string;
+  deliveryDate: string;
+  items: Omit<BillItem, 'id' | 'totalPrice'>[];
+  receivedItems: Omit<ReceivedItem, 'id'>[];
+  notes?: string;
+}
+
+// Bill update request
+export interface UpdateBillRequest extends Partial<CreateBillRequest> {
+  id: string;
+}
+
+// Payment creation request
+export interface CreatePaymentRequest {
+  amount: number;
+  paymentDate: string;
+  paymentMethod: 'cash' | 'card' | 'upi' | 'bank_transfer' | 'other';
+  notes?: string;
+}
+
+// Payment update request
+export interface UpdatePaymentRequest extends CreatePaymentRequest {
+  id: string;
+}
+
+// Billing config item form data
+export interface BillingConfigItemFormData {
+  name: string;
+  description?: string;
+  price: number;
+  category: 'service' | 'material' | 'alteration';
+}
+
+// Billing config item creation request
+export interface CreateBillingConfigItemRequest {
+  name: string;
+  description?: string;
+  price: number;
+  category: 'service' | 'material' | 'alteration';
+}
+
+// Billing config item update request
+export interface UpdateBillingConfigItemRequest extends CreateBillingConfigItemRequest {
+  id: string;
+}
+
+// Received item template form data
+export interface ReceivedItemTemplateFormData {
+  name: string;
+  description?: string;
+  category: 'sample' | 'material' | 'accessory' | 'other';
+}
+
+// Received item template creation request
+export interface CreateReceivedItemTemplateRequest {
+  name: string;
+  description?: string;
+  category: 'sample' | 'material' | 'accessory' | 'other';
+}
+
+// Received item template update request
+export interface UpdateReceivedItemTemplateRequest extends CreateReceivedItemTemplateRequest {
+  id: string;
+}
+
+// Bill query parameters
+export interface BillQueryParams {
+  customerId?: string;
+  status?: BillStatus;
+  startDate?: string;
+  endDate?: string;
+  searchText?: string;
+  limit?: number;
+  startAfter?: string;
+}
+
+// Calendar event for billing integration
+export interface CalendarEvent {
+  id: string;
+  type: 'billing' | 'delivery';
+  date: string;
+  billId: string;
+  billNumber: string;
+  customerName: string;
+  amount?: number;
+  status?: BillStatus;
+}
+
+// ============================================================================
 // API RESPONSE WRAPPER INTERFACES
 // ============================================================================
 
@@ -105,6 +282,13 @@ export interface CustomerListResponse extends ApiResponse<PaginatedResponse<Cust
 export interface CustomerResponse extends ApiResponse<Customer> {}
 export interface MeasurementConfigListResponse extends ApiResponse<PaginatedResponse<MeasurementConfig>> {}
 export interface MeasurementConfigResponse extends ApiResponse<MeasurementConfig> {}
+export interface BillListResponse extends ApiResponse<PaginatedResponse<Bill>> {}
+export interface BillResponse extends ApiResponse<Bill> {}
+export interface BillingConfigItemListResponse extends ApiResponse<BillingConfigItem[]> {}
+export interface BillingConfigItemResponse extends ApiResponse<BillingConfigItem> {}
+export interface ReceivedItemTemplateListResponse extends ApiResponse<ReceivedItemTemplate[]> {}
+export interface ReceivedItemTemplateResponse extends ApiResponse<ReceivedItemTemplate> {}
+export interface PaymentResponse extends ApiResponse<Payment> {}
 
 // API error response
 export interface ApiErrorResponse {
@@ -151,6 +335,27 @@ export interface CustomerFormState {
 
 export interface MeasurementConfigFormState {
   data: MeasurementConfigFormData;
+  validation: FormValidationState;
+  isSubmitting: boolean;
+  isDirty: boolean;
+}
+
+export interface BillFormState {
+  data: BillFormData;
+  validation: FormValidationState;
+  isSubmitting: boolean;
+  isDirty: boolean;
+}
+
+export interface BillingConfigItemFormState {
+  data: BillingConfigItemFormData;
+  validation: FormValidationState;
+  isSubmitting: boolean;
+  isDirty: boolean;
+}
+
+export interface ReceivedItemTemplateFormState {
+  data: ReceivedItemTemplateFormData;
   validation: FormValidationState;
   isSubmitting: boolean;
   isDirty: boolean;
@@ -208,7 +413,7 @@ export interface CacheEntry<T> {
 export interface OfflineAction {
   id: string;
   type: 'CREATE' | 'UPDATE' | 'DELETE';
-  entity: 'customer' | 'measurementConfig';
+  entity: 'customer' | 'measurementConfig' | 'bill' | 'billingConfigItem' | 'receivedItemTemplate';
   data: any;
   timestamp: Date;
   retryCount: number;
@@ -255,6 +460,9 @@ export type RootDrawerParamList = {
   Dashboard: undefined;
   CustomerManagement: undefined;
   MeasurementConfig: undefined;
+  Billing: undefined;
+  BillingConfig: undefined;
+  Calendar: undefined;
   Settings: undefined;
 };
 
@@ -269,7 +477,20 @@ export type MeasurementConfigStackParamList = {
   MeasurementConfigForm: { config?: MeasurementConfig; mode: 'add' | 'edit' };
 };
 
-export type RootStackParamList = RootDrawerParamList & CustomerStackParamList & MeasurementConfigStackParamList;
+export type BillingStackParamList = {
+  BillingList: undefined;
+  BillingForm: { bill?: Bill; mode: 'add' | 'edit'; customerId?: string };
+  BillDetail: { bill: Bill };
+  BillPrint: { billId: string };
+};
+
+export type BillingConfigStackParamList = {
+  BillingConfigList: undefined;
+  BillingConfigItemForm: { item?: BillingConfigItem; mode: 'add' | 'edit' };
+  ReceivedItemTemplateForm: { template?: ReceivedItemTemplate; mode: 'add' | 'edit' };
+};
+
+export type RootStackParamList = RootDrawerParamList & CustomerStackParamList & MeasurementConfigStackParamList & BillingStackParamList & BillingConfigStackParamList;
 
 // ============================================================================
 // LOGO COMPONENT TYPES
@@ -298,6 +519,12 @@ export type {
   FieldValidationRule,
   MeasurementValidationRule,
   MeasurementConfigValidationSchema,
+  BillValidationSchema,
+  BillItemValidationRule,
+  ReceivedItemValidationRule,
+  PaymentValidationSchema,
+  BillingConfigItemValidationSchema,
+  ReceivedItemTemplateValidationSchema,
 } from './validation';
 
 // ============================================================================
@@ -309,4 +536,8 @@ export {
   VALIDATION_MESSAGES,
   CUSTOMER_VALIDATION_SCHEMA,
   MEASUREMENT_CONFIG_VALIDATION_SCHEMA,
+  BILL_VALIDATION_SCHEMA,
+  PAYMENT_VALIDATION_SCHEMA,
+  BILLING_CONFIG_ITEM_VALIDATION_SCHEMA,
+  RECEIVED_ITEM_TEMPLATE_VALIDATION_SCHEMA,
 } from './validation';

@@ -98,7 +98,71 @@ export const VALIDATION_MESSAGES = {
   INVALID_FORMAT: 'Invalid format',
   TOO_MANY_DECIMALS: 'Too many decimal places',
   NEGATIVE_NUMBER: 'Number cannot be negative',
+  INVALID_CUSTOMER: 'Please select a valid customer',
+  DELIVERY_DATE_PAST: 'Delivery date cannot be in the past',
+  BILLING_DATE_FUTURE: 'Billing date cannot be in the future',
+  MIN_ITEMS: 'At least one item is required',
+  PAYMENT_EXCEEDS_OUTSTANDING: 'Payment amount cannot exceed outstanding balance',
+  INVALID_PAYMENT_METHOD: 'Please select a valid payment method',
+  INVALID_CATEGORY: 'Please select a valid category',
+  PRICE_REQUIRED: 'Price is required and must be greater than 0',
+  QUANTITY_REQUIRED: 'Quantity is required and must be greater than 0',
+  RECEIVED_DATE_FUTURE: 'Received date cannot be in the future',
 } as const;
+
+// ============================================================================
+// BILLING VALIDATION SCHEMAS
+// ============================================================================
+
+export interface BillValidationSchema {
+  customerId: FieldValidationRule;
+  billingDate: FieldValidationRule;
+  deliveryDate: FieldValidationRule;
+  items: {
+    required: boolean;
+    minItems: number;
+    itemValidation: BillItemValidationRule;
+  };
+  receivedItems: {
+    required: boolean;
+    itemValidation: ReceivedItemValidationRule;
+  };
+  notes: FieldValidationRule;
+}
+
+export interface BillItemValidationRule {
+  name: FieldValidationRule;
+  description: FieldValidationRule;
+  quantity: FieldValidationRule;
+  unitPrice: FieldValidationRule;
+}
+
+export interface ReceivedItemValidationRule {
+  name: FieldValidationRule;
+  description: FieldValidationRule;
+  quantity: FieldValidationRule;
+  receivedDate: FieldValidationRule;
+}
+
+export interface PaymentValidationSchema {
+  amount: FieldValidationRule;
+  paymentDate: FieldValidationRule;
+  paymentMethod: FieldValidationRule;
+  notes: FieldValidationRule;
+}
+
+export interface BillingConfigItemValidationSchema {
+  name: FieldValidationRule;
+  description: FieldValidationRule;
+  price: FieldValidationRule;
+  category: FieldValidationRule;
+}
+
+export interface ReceivedItemTemplateValidationSchema {
+  name: FieldValidationRule;
+  description: FieldValidationRule;
+  category: FieldValidationRule;
+}
 
 // ============================================================================
 // VALIDATION SCHEMA DEFINITIONS
@@ -149,5 +213,116 @@ export const MEASUREMENT_CONFIG_VALIDATION_SCHEMA: MeasurementConfigValidationSc
       minLength: 2,
       maxLength: 30,
     },
+  },
+};
+
+export const BILL_VALIDATION_SCHEMA: BillValidationSchema = {
+  customerId: {
+    required: true,
+  },
+  billingDate: {
+    required: true,
+  },
+  deliveryDate: {
+    required: true,
+  },
+  items: {
+    required: true,
+    minItems: 1,
+    itemValidation: {
+      name: {
+        required: true,
+        minLength: 2,
+        maxLength: 100,
+      },
+      description: {
+        required: false,
+        maxLength: 200,
+      },
+      quantity: {
+        required: true,
+        pattern: VALIDATION_PATTERNS.NUMERIC,
+      },
+      unitPrice: {
+        required: true,
+        pattern: VALIDATION_PATTERNS.DECIMAL,
+      },
+    },
+  },
+  receivedItems: {
+    required: false,
+    itemValidation: {
+      name: {
+        required: true,
+        minLength: 2,
+        maxLength: 100,
+      },
+      description: {
+        required: false,
+        maxLength: 200,
+      },
+      quantity: {
+        required: true,
+        pattern: VALIDATION_PATTERNS.NUMERIC,
+      },
+      receivedDate: {
+        required: true,
+      },
+    },
+  },
+  notes: {
+    required: false,
+    maxLength: 500,
+  },
+};
+
+export const PAYMENT_VALIDATION_SCHEMA: PaymentValidationSchema = {
+  amount: {
+    required: true,
+    pattern: VALIDATION_PATTERNS.DECIMAL,
+  },
+  paymentDate: {
+    required: true,
+  },
+  paymentMethod: {
+    required: true,
+  },
+  notes: {
+    required: false,
+    maxLength: 200,
+  },
+};
+
+export const BILLING_CONFIG_ITEM_VALIDATION_SCHEMA: BillingConfigItemValidationSchema = {
+  name: {
+    required: true,
+    minLength: 2,
+    maxLength: 100,
+  },
+  description: {
+    required: false,
+    maxLength: 200,
+  },
+  price: {
+    required: true,
+    pattern: VALIDATION_PATTERNS.DECIMAL,
+  },
+  category: {
+    required: true,
+  },
+};
+
+export const RECEIVED_ITEM_TEMPLATE_VALIDATION_SCHEMA: ReceivedItemTemplateValidationSchema = {
+  name: {
+    required: true,
+    minLength: 2,
+    maxLength: 100,
+  },
+  description: {
+    required: false,
+    maxLength: 200,
+  },
+  category: {
+    required: true,
   },
 };

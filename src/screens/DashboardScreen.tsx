@@ -49,6 +49,22 @@ const DashboardScreen: React.FC<Props> = ({ navigation }) => {
       onPress: () => navigation.navigate('CustomerManagement'),
     },
     {
+      id: 'billing',
+      title: 'Billing',
+      subtitle: 'Manage bills & payments',
+      icon: 'receipt',
+      color: '#FF6B35',
+      onPress: () => navigation.navigate('Billing'),
+    },
+    {
+      id: 'calendar',
+      title: 'Calendar',
+      subtitle: 'View bills by date',
+      icon: 'calendar',
+      color: '#4CAF50',
+      onPress: () => navigation.navigate('Calendar'),
+    },
+    {
       id: 'measurements',
       title: 'Measurements',
       subtitle: 'Configure measurement types',

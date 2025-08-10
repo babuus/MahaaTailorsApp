@@ -4,6 +4,14 @@ import boto3
 from botocore.exceptions import ClientError
 import logging
 from datetime import datetime
+from decimal import Decimal
+from boto3.dynamodb.conditions import Attr, Key
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return json.JSONEncoder.default(self, obj)
 
 # Configure logging
 logger = logging.getLogger()
@@ -12,14 +20,20 @@ logger.setLevel(logging.INFO)
 REGION = os.environ.get("AWS_REGION", "ap-south-1")
 BILLS_TABLE_NAME = os.environ.get("BILLS_TABLE_NAME", "Bills")
 CUSTOMERS_TABLE_NAME = os.environ.get("CUSTOMERS_TABLE_NAME", "Customers")
+BILLING_CONFIG_ITEMS_TABLE_NAME = os.environ.get("BILLING_CONFIG_ITEMS_TABLE_NAME", "BillingConfigItems")
+RECEIVED_ITEM_TEMPLATES_TABLE_NAME = os.environ.get("RECEIVED_ITEM_TEMPLATES_TABLE_NAME", "ReceivedItemTemplates")
 
 print(f"DEBUG: Using REGION: {REGION}")
 print(f"DEBUG: Using BILLS_TABLE_NAME: {BILLS_TABLE_NAME}")
 print(f"DEBUG: Using CUSTOMERS_TABLE_NAME: {CUSTOMERS_TABLE_NAME}")
+print(f"DEBUG: Using BILLING_CONFIG_ITEMS_TABLE_NAME: {BILLING_CONFIG_ITEMS_TABLE_NAME}")
+print(f"DEBUG: Using RECEIVED_ITEM_TEMPLATES_TABLE_NAME: {RECEIVED_ITEM_TEMPLATES_TABLE_NAME}")
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 bills_table = dynamodb.Table(BILLS_TABLE_NAME)
 customers_table = dynamodb.Table(CUSTOMERS_TABLE_NAME)
+billing_config_items_table = dynamodb.Table(BILLING_CONFIG_ITEMS_TABLE_NAME)
+received_item_templates_table = dynamodb.Table(RECEIVED_ITEM_TEMPLATES_TABLE_NAME)
 
 def handle_error(e, function_name):
     logger.error(f"Error in {function_name}: {e}")
@@ -46,25 +60,90 @@ def handle_options(event, context):
 
 def get_bills(event, context):
     try:
-        response = bills_table.scan()
-        bills = [
-            {
-                "billId": item["bill_id"],
+        query_params = event.get("queryStringParameters", {}) or {}
+        customer_id = query_params.get("customerId")
+        status = query_params.get("status")
+        start_date = query_params.get("startDate")
+        end_date = query_params.get("endDate")
+        search_text = query_params.get("searchText")
+        limit = int(query_params.get("limit", 50))
+
+        scan_kwargs = {"Limit": limit}
+        
+        # Build filter expression
+        filter_expressions = []
+        
+        if customer_id:
+            filter_expressions.append(Attr("customer_id").eq(customer_id))
+        
+        if status:
+            filter_expressions.append(Attr("status").eq(status))
+            
+        if start_date and end_date:
+            filter_expressions.append(Attr("billing_date").between(start_date, end_date))
+        elif start_date:
+            filter_expressions.append(Attr("billing_date").gte(start_date))
+        elif end_date:
+            filter_expressions.append(Attr("billing_date").lte(end_date))
+            
+        if search_text:
+            filter_expressions.append(
+                Attr("bill_number").contains(search_text) |
+                Attr("notes").contains(search_text)
+            )
+        
+        if filter_expressions:
+            filter_expr = filter_expressions[0]
+            for expr in filter_expressions[1:]:
+                filter_expr = filter_expr & expr
+            scan_kwargs["FilterExpression"] = filter_expr
+
+        response = bills_table.scan(**scan_kwargs)
+        
+        bills = []
+        for item in response.get("Items", []):
+            # Recalculate amounts to ensure consistency
+            total_amount = float(item["total_amount"]) if isinstance(item["total_amount"], Decimal) else item["total_amount"]
+            payments = item.get("payments", [])
+            
+            # Calculate paid amount from payments
+            paid_amount = sum(float(payment.get("amount", 0)) for payment in payments)
+            outstanding_amount = total_amount - paid_amount
+            
+            # Determine status based on calculated amounts
+            if outstanding_amount <= 0:
+                status = "fully_paid"
+            elif paid_amount > 0:
+                status = "partially_paid"
+            else:
+                status = "unpaid"
+            
+            bill = {
+                "id": item["bill_id"],
                 "customerId": item["customer_id"],
-                "billDate": item["bill_date"],
-                "totalAmount": item["total_amount"],
-                "status": item["status"],
+                "billNumber": item.get("bill_number", ""),
+                "billingDate": item["billing_date"],
+                "deliveryDate": item["delivery_date"],
                 "items": item.get("items", []),
+                "receivedItems": item.get("received_items", []),
+                "totalAmount": total_amount,
+                "paidAmount": paid_amount,
+                "outstandingAmount": outstanding_amount,
+                "status": status,
+                "payments": payments,
+                "notes": item.get("notes", ""),
                 "createdAt": item.get("created_at"),
                 "updatedAt": item.get("updated_at"),
             }
-            for item in response.get("Items", [])
-        ]
+            bills.append(bill)
 
-        logger.info(f"Fetched bills: {bills}")
+        logger.info(f"Fetched {len(bills)} bills")
         return {
             "statusCode": 200,
-            "body": json.dumps(bills),
+            "body": json.dumps({
+                "bills": bills,
+                "hasMore": len(bills) == limit
+            }, cls=DecimalEncoder),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -75,19 +154,13 @@ def get_bills(event, context):
     except Exception as e:
         return handle_error(e, "get_bills")
 
-def add_bill(event, context):
+def get_bill_by_id(event, context):
     try:
-        body = json.loads(event.get("body", "{}"))
-        customer_id = body.get("customerId")
-        bill_date = body.get("billDate")
-        total_amount = body.get("totalAmount")
-        status = body.get("status")
-        items = body.get("items", [])
-
-        if not customer_id or not bill_date or total_amount is None or not status:
+        bill_id = event["pathParameters"]["id"]
+        if not bill_id:
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "Customer ID, bill date, total amount, and status are required."}),
+                "body": json.dumps({"error": "Bill ID is required."}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
@@ -96,33 +169,173 @@ def add_bill(event, context):
                 },
             }
 
-        bill_id = f"bill-{int(os.urandom(4).hex(), 16)}"
-        now = boto3.dynamodb.types.Decimal(str(int(os.urandom(4).hex(), 16)))
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        bill_item = response.get("Item")
+        
+        if not bill_item:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
 
-        item = {
+        # Recalculate amounts to ensure consistency
+        total_amount = float(bill_item["total_amount"]) if isinstance(bill_item["total_amount"], Decimal) else bill_item["total_amount"]
+        payments = bill_item.get("payments", [])
+        
+        # Calculate paid amount from payments
+        paid_amount = sum(float(payment.get("amount", 0)) for payment in payments)
+        outstanding_amount = total_amount - paid_amount
+        
+        # Determine status based on calculated amounts
+        if outstanding_amount <= 0:
+            status = "fully_paid"
+        elif paid_amount > 0:
+            status = "partially_paid"
+        else:
+            status = "unpaid"
+        
+        logger.info(f"DEBUG: Bill {bill_item['bill_id']} - Total: {total_amount}, Paid: {paid_amount}, Outstanding: {outstanding_amount}, Status: {status}")
+
+        bill = {
+            "id": bill_item["bill_id"],
+            "customerId": bill_item["customer_id"],
+            "billNumber": bill_item.get("bill_number", ""),
+            "billingDate": bill_item["billing_date"],
+            "deliveryDate": bill_item["delivery_date"],
+            "items": bill_item.get("items", []),
+            "receivedItems": bill_item.get("received_items", []),
+            "totalAmount": total_amount,
+            "paidAmount": paid_amount,
+            "outstandingAmount": outstanding_amount,
+            "status": status,
+            "payments": payments,
+            "notes": bill_item.get("notes", ""),
+            "createdAt": bill_item.get("created_at"),
+            "updatedAt": bill_item.get("updated_at"),
+        }
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps(bill, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_bill_by_id")
+
+def add_bill(event, context):
+    try:
+        body = json.loads(event.get("body", "{}"))
+        customer_id = body.get("customerId")
+        billing_date = body.get("billingDate")
+        delivery_date = body.get("deliveryDate")
+        items = body.get("items", [])
+        received_items = body.get("receivedItems", [])
+        notes = body.get("notes", "")
+
+        if not customer_id or not billing_date or not delivery_date or not items:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Customer ID, billing date, delivery date, and items are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Generate unique bill ID and bill number
+        bill_id = f"bill-{os.urandom(16).hex()}"
+        bill_number = f"B{int(datetime.now().timestamp())}"
+        now = int(datetime.now().timestamp())
+
+        # Calculate total amount from items
+        total_amount = Decimal("0")
+        processed_items = []
+        for item in items:
+            quantity = Decimal(str(item.get("quantity", 1)))
+            unit_price = Decimal(str(item.get("unitPrice", 0)))
+            item_total = quantity * unit_price
+            processed_item = {
+                "id": f"item-{os.urandom(8).hex()}",
+                "type": item.get("type", "custom"),
+                "name": item.get("name"),
+                "description": item.get("description", ""),
+                "quantity": int(item.get("quantity", 1)),
+                "unitPrice": unit_price,
+                "totalPrice": item_total,
+                "configItemId": item.get("configItemId")
+            }
+            processed_items.append(processed_item)
+            total_amount += item_total
+
+        # Process received items
+        processed_received_items = []
+        for received_item in received_items:
+            processed_received_item = {
+                "id": f"received-{os.urandom(8).hex()}",
+                "name": received_item.get("name"),
+                "description": received_item.get("description", ""),
+                "quantity": int(received_item.get("quantity", 1)),
+                "receivedDate": received_item.get("receivedDate"),
+                "status": "received"
+            }
+            processed_received_items.append(processed_received_item)
+
+        bill_item = {
             "bill_id": bill_id,
             "customer_id": customer_id,
-            "bill_date": bill_date,
-            "total_amount": total_amount,
-            "status": status,
-            "items": items,
+            "bill_number": bill_number,
+            "billing_date": billing_date,
+            "delivery_date": delivery_date,
+            "items": processed_items,
+            "received_items": processed_received_items,
+            "total_amount": Decimal(str(total_amount)),
+            "paid_amount": Decimal("0"),
+            "outstanding_amount": Decimal(str(total_amount)),
+            "status": "unpaid",
+            "payments": [],
+            "notes": notes,
             "created_at": now,
             "updated_at": now,
         }
 
-        bills_table.put_item(Item=item)
+        bills_table.put_item(Item=bill_item)
 
-        logger.info(f"Added bill: {item}")
+        # Transform response to match frontend expectations
+        response_bill = {
+            "id": bill_id,
+            "customerId": customer_id,
+            "billNumber": bill_number,
+            "billingDate": billing_date,
+            "deliveryDate": delivery_date,
+            "items": processed_items,
+            "receivedItems": processed_received_items,
+            "totalAmount": float(total_amount),
+            "paidAmount": 0,
+            "outstandingAmount": float(total_amount),
+            "status": "unpaid",
+            "payments": [],
+            "notes": notes,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        logger.info(f"Added bill: {bill_id}")
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "billId": bill_id,
-                "customerId": customer_id,
-                "billDate": bill_date,
-                "totalAmount": total_amount,
-                "status": status,
-                "items": items,
-            }),
+            "body": json.dumps(response_bill, cls=DecimalEncoder),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -138,15 +351,16 @@ def update_bill(event, context):
         body = json.loads(event.get("body", "{}"))
         bill_id = event["pathParameters"]["id"]
         customer_id = body.get("customerId")
-        bill_date = body.get("billDate")
-        total_amount = body.get("totalAmount")
-        status = body.get("status")
+        billing_date = body.get("billingDate")
+        delivery_date = body.get("deliveryDate")
         items = body.get("items", [])
+        received_items = body.get("receivedItems", [])
+        notes = body.get("notes", "")
 
-        if not bill_id or not customer_id or not bill_date or total_amount is None or not status:
+        if not bill_id or not customer_id or not billing_date or not delivery_date or not items:
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "Bill ID, customer ID, bill date, total amount, and status are required for update."}),
+                "body": json.dumps({"error": "Bill ID, customer ID, billing date, delivery date, and items are required for update."}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
@@ -155,16 +369,79 @@ def update_bill(event, context):
                 },
             }
 
-        now = boto3.dynamodb.types.Decimal(str(int(os.urandom(4).hex(), 16)))
+        # Calculate total amount from items
+        total_amount = Decimal("0")
+        processed_items = []
+        for item in items:
+            quantity = Decimal(str(item.get("quantity", 1)))
+            unit_price = Decimal(str(item.get("unitPrice", 0)))
+            item_total = quantity * unit_price
+            processed_item = {
+                "id": item.get("id", f"item-{os.urandom(8).hex()}"),
+                "type": item.get("type", "custom"),
+                "name": item.get("name"),
+                "description": item.get("description", ""),
+                "quantity": int(item.get("quantity", 1)),
+                "unitPrice": unit_price,
+                "totalPrice": item_total,
+                "configItemId": item.get("configItemId")
+            }
+            processed_items.append(processed_item)
+            total_amount += item_total
 
-        update_expression = "SET customer_id = :customerId, bill_date = :billDate, total_amount = :totalAmount, #s = :status, items = :items, updated_at = :updatedAt"
-        expression_attribute_names = {"#s": "status"}
+        # Process received items
+        processed_received_items = []
+        for received_item in received_items:
+            processed_received_item = {
+                "id": received_item.get("id", f"received-{os.urandom(8).hex()}"),
+                "name": received_item.get("name"),
+                "description": received_item.get("description", ""),
+                "quantity": int(received_item.get("quantity", 1)),
+                "receivedDate": received_item.get("receivedDate"),
+                "status": received_item.get("status", "received")
+            }
+            processed_received_items.append(processed_received_item)
+
+        now = int(datetime.now().timestamp())
+
+        # Update outstanding amount based on new total and existing payments
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        existing_bill = response.get("Item")
+        if not existing_bill:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        paid_amount = Decimal(str(existing_bill.get("paid_amount", 0)))
+        outstanding_amount = total_amount - paid_amount
+        
+        # Determine status based on payment
+        if outstanding_amount <= 0:
+            status = "fully_paid"
+        elif paid_amount > 0:
+            status = "partially_paid"
+        else:
+            status = "unpaid"
+
+        update_expression = "SET customer_id = :customerId, billing_date = :billingDate, delivery_date = :deliveryDate, #items = :items, received_items = :receivedItems, total_amount = :totalAmount, outstanding_amount = :outstandingAmount, #s = :status, notes = :notes, updated_at = :updatedAt"
+        expression_attribute_names = {"#s": "status", "#items": "items"}
         expression_attribute_values = {
             ":customerId": customer_id,
-            ":billDate": bill_date,
-            ":totalAmount": total_amount,
+            ":billingDate": billing_date,
+            ":deliveryDate": delivery_date,
+            ":items": processed_items,
+            ":receivedItems": processed_received_items,
+            ":totalAmount": Decimal(str(total_amount)),
+            ":outstandingAmount": Decimal(str(outstanding_amount)),
             ":status": status,
-            ":items": items,
+            ":notes": notes,
             ":updatedAt": now,
         }
 
@@ -177,17 +454,30 @@ def update_bill(event, context):
         )
 
         updated_item = response.get("Attributes")
-        logger.info(f"Updated bill: {updated_item}")
+        
+        # Transform response to match frontend expectations (same as add_bill)
+        response_bill = {
+            "id": updated_item["bill_id"],
+            "customerId": updated_item["customer_id"],
+            "billNumber": updated_item.get("bill_number", ""),
+            "billingDate": updated_item["billing_date"],
+            "deliveryDate": updated_item["delivery_date"],
+            "items": updated_item.get("items", []),
+            "receivedItems": updated_item.get("received_items", []),
+            "totalAmount": float(updated_item["total_amount"]) if isinstance(updated_item["total_amount"], Decimal) else updated_item["total_amount"],
+            "paidAmount": float(updated_item.get("paid_amount", 0)) if isinstance(updated_item.get("paid_amount", 0), Decimal) else updated_item.get("paid_amount", 0),
+            "outstandingAmount": float(updated_item.get("outstanding_amount", 0)) if isinstance(updated_item.get("outstanding_amount", 0), Decimal) else updated_item.get("outstanding_amount", 0),
+            "status": updated_item.get("status", "unpaid"),
+            "payments": updated_item.get("payments", []),
+            "notes": updated_item.get("notes", ""),
+            "createdAt": updated_item.get("created_at"),
+            "updatedAt": updated_item.get("updated_at"),
+        }
+        
+        logger.info(f"Updated bill: {updated_item['bill_id']}")
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "billId": updated_item["bill_id"],
-                "customerId": updated_item["customer_id"],
-                "billDate": updated_item["bill_date"],
-                "totalAmount": updated_item["total_amount"],
-                "status": updated_item["status"],
-                "items": updated_item.get("items"),
-            }),
+            "body": json.dumps(response_bill, cls=DecimalEncoder),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -355,15 +645,24 @@ def save_customer_measurement(event, context):
     except Exception as e:
         return handle_error(e, "save_customer_measurement")
 
-def delete_customer_measurement(event, context):
+# Payment Management Functions
+def add_payment(event, context):
     try:
-        customer_id = event["pathParameters"]["id"]
-        measurement_id = event["pathParameters"]["measurementId"]
+        bill_id = event["pathParameters"]["id"]
+        body = json.loads(event.get("body", "{}"))
+        amount = body.get("amount")
+        payment_date = body.get("paymentDate")
+        payment_method = body.get("paymentMethod")
+        notes = body.get("notes", "")
 
-        if not customer_id or not measurement_id:
+        # Debug logging
+        logger.info(f"DEBUG: Adding payment for bill {bill_id}")
+        logger.info(f"DEBUG: Payment data - amount: {amount}, date: {payment_date}, method: {payment_method}, notes: {notes}")
+
+        if not bill_id or not amount or not payment_date or not payment_method:
             return {
                 "statusCode": 400,
-                "body": json.dumps({"error": "Customer ID and Measurement ID are required for deletion."}),
+                "body": json.dumps({"error": "Bill ID, amount, payment date, and payment method are required."}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
@@ -372,13 +671,14 @@ def delete_customer_measurement(event, context):
                 },
             }
 
-        response = customers_table.get_item(Key={"customer_id": customer_id})
-        customer = response.get("Item")
-
-        if not customer:
+        # Get current bill
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        bill = response.get("Item")
+        
+        if not bill:
             return {
                 "statusCode": 404,
-                "body": json.dumps({"error": "Customer not found."}),
+                "body": json.dumps({"error": "Bill not found."}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
@@ -387,13 +687,16 @@ def delete_customer_measurement(event, context):
                 },
             }
 
-        customer_measurements = customer.get("measurements", {})
-        if measurement_id in customer_measurements:
-            del customer_measurements[measurement_id]
-        else:
+        # Validate payment amount doesn't exceed outstanding amount
+        outstanding_amount = float(bill.get("outstanding_amount", 0))
+        payment_amount = float(amount)
+        
+        logger.info(f"DEBUG: Outstanding amount: {outstanding_amount}, Payment amount: {payment_amount}")
+        
+        if payment_amount > outstanding_amount:
             return {
-                "statusCode": 404,
-                "body": json.dumps({"error": "Measurement not found for this customer."}),
+                "statusCode": 400,
+                "body": json.dumps({"error": "Payment amount cannot exceed outstanding balance."}),
                 "headers": {
                     "Content-Type": "application/json",
                     "Access-Control-Allow-Origin": "*",
@@ -402,25 +705,93 @@ def delete_customer_measurement(event, context):
                 },
             }
 
-        now = boto3.dynamodb.types.Decimal(str(int(os.urandom(4).hex(), 16)))
-
-        update_expression = "SET measurements = :measurements, updated_at = :updatedAt"
-        expression_attribute_values = {
-            ":measurements": customer_measurements,
-            ":updatedAt": now,
+        # Create new payment
+        payment_id = f"payment-{os.urandom(8).hex()}"
+        now = int(datetime.now().timestamp())
+        
+        new_payment = {
+            "id": payment_id,
+            "amount": Decimal(str(payment_amount)),
+            "paymentDate": payment_date,
+            "paymentMethod": payment_method,
+            "notes": notes,
+            "createdAt": now
         }
 
-        customers_table.update_item(
-            Key={"customer_id": customer_id},
-            UpdateExpression=update_expression,
-            ExpressionAttributeValues=expression_attribute_values,
-            ReturnValues="ALL_NEW",
-        )
+        # Update bill with new payment
+        payments = bill.get("payments", [])
+        payments.append(new_payment)
+        
+        current_paid_amount = float(bill.get("paid_amount", 0))
+        total_amount = float(bill.get("total_amount", 0))
+        new_paid_amount = current_paid_amount + payment_amount
+        new_outstanding_amount = total_amount - new_paid_amount
+        
+        logger.info(f"DEBUG: Total amount: {total_amount}")
+        logger.info(f"DEBUG: Current paid amount: {current_paid_amount}")
+        logger.info(f"DEBUG: Payment amount: {payment_amount}")
+        logger.info(f"DEBUG: New paid amount: {new_paid_amount}")
+        logger.info(f"DEBUG: New outstanding: {new_outstanding_amount}")
+        
+        # Determine new status
+        if new_outstanding_amount <= 0:
+            new_status = "fully_paid"
+        elif new_paid_amount > 0:
+            new_status = "partially_paid"
+        else:
+            new_status = "unpaid"
 
-        logger.info(f"Deleted measurement {measurement_id} for customer {customer_id}")
+        logger.info(f"DEBUG: New status: {new_status}")
+        logger.info(f"DEBUG: About to update DynamoDB with payments: {payments}")
+        logger.info(f"DEBUG: Payment being added: {new_payment}")
+        logger.info(f"DEBUG: Total payments count: {len(payments)}")
+
+        try:
+            bills_table.update_item(
+                Key={"bill_id": bill_id},
+                UpdateExpression="SET payments = :payments, paid_amount = :paidAmount, outstanding_amount = :outstandingAmount, #s = :status, updated_at = :updatedAt",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":payments": payments,
+                    ":paidAmount": Decimal(str(new_paid_amount)),
+                    ":outstandingAmount": Decimal(str(new_outstanding_amount)),
+                    ":status": new_status,
+                    ":updatedAt": now,
+                }
+            )
+            logger.info(f"DEBUG: DynamoDB update successful")
+        except Exception as db_error:
+            logger.error(f"DEBUG: DynamoDB update failed: {str(db_error)}")
+            raise db_error
+
+        # Get the updated bill to return complete information
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        updated_bill = response.get("Item")
+        
+        # Transform to match frontend expectations
+        bill_response = {
+            "id": updated_bill["bill_id"],
+            "customerId": updated_bill["customer_id"],
+            "billNumber": updated_bill.get("bill_number", ""),
+            "billingDate": updated_bill["billing_date"],
+            "deliveryDate": updated_bill["delivery_date"],
+            "items": updated_bill.get("items", []),
+            "receivedItems": updated_bill.get("received_items", []),
+            "totalAmount": float(updated_bill["total_amount"]) if isinstance(updated_bill["total_amount"], Decimal) else updated_bill["total_amount"],
+            "paidAmount": float(updated_bill.get("paid_amount", 0)) if isinstance(updated_bill.get("paid_amount", 0), Decimal) else updated_bill.get("paid_amount", 0),
+            "outstandingAmount": float(updated_bill.get("outstanding_amount", 0)) if isinstance(updated_bill.get("outstanding_amount", 0), Decimal) else updated_bill.get("outstanding_amount", 0),
+            "status": updated_bill.get("status", "unpaid"),
+            "payments": updated_bill.get("payments", []),
+            "notes": updated_bill.get("notes", ""),
+            "createdAt": updated_bill.get("created_at"),
+            "updatedAt": updated_bill.get("updated_at"),
+            "payment": new_payment  # Include the new payment details
+        }
+
+        logger.info(f"Added payment {payment_id} to bill {bill_id}")
         return {
             "statusCode": 200,
-            "body": json.dumps({"message": "Measurement deleted successfully!"}),
+            "body": json.dumps(bill_response, cls=DecimalEncoder),
             "headers": {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": "*",
@@ -429,12 +800,322 @@ def delete_customer_measurement(event, context):
             },
         }
     except Exception as e:
-        return handle_error(e, "delete_customer_measurement")
+        return handle_error(e, "add_payment")
+
+def test_bill_calculation(event, context):
+    """
+    Test endpoint to verify bill calculation logic
+    """
+    try:
+        bill_id = event["pathParameters"]["id"]
+        
+        # Get the bill
+        response = bills_table.get_item(Key={"bill_id": bill_id})
+        bill = response.get("Item")
+        
+        if not bill:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill not found"}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+        
+        # Calculate amounts
+        total_amount = float(bill.get("total_amount", 0))
+        payments = bill.get("payments", [])
+        calculated_paid_amount = sum(float(payment.get("amount", 0)) for payment in payments)
+        calculated_outstanding_amount = total_amount - calculated_paid_amount
+        
+        # Get stored amounts
+        stored_paid_amount = float(bill.get("paid_amount", 0))
+        stored_outstanding_amount = float(bill.get("outstanding_amount", 0))
+        
+        result = {
+            "billId": bill_id,
+            "totalAmount": total_amount,
+            "storedPaidAmount": stored_paid_amount,
+            "calculatedPaidAmount": calculated_paid_amount,
+            "storedOutstandingAmount": stored_outstanding_amount,
+            "calculatedOutstandingAmount": calculated_outstanding_amount,
+            "paymentsCount": len(payments),
+            "payments": [{"id": p.get("id"), "amount": float(p.get("amount", 0)), "date": p.get("paymentDate")} for p in payments],
+            "isConsistent": (stored_paid_amount == calculated_paid_amount and stored_outstanding_amount == calculated_outstanding_amount)
+        }
+        
+        return {
+            "statusCode": 200,
+            "body": json.dumps(result, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "test_bill_calculation")
+
+def recalculate_bill_amounts(event, context):
+    """
+    Utility function to recalculate outstanding amounts for all bills.
+    This can be used to fix data inconsistencies.
+    """
+    try:
+        # Scan all bills
+        response = bills_table.scan()
+        bills = response.get("Items", [])
+        
+        updated_count = 0
+        
+        for bill in bills:
+            bill_id = bill["bill_id"]
+            total_amount = float(bill.get("total_amount", 0))
+            payments = bill.get("payments", [])
+            
+            # Calculate paid amount from payments
+            paid_amount = sum(float(payment.get("amount", 0)) for payment in payments)
+            outstanding_amount = total_amount - paid_amount
+            
+            # Determine status
+            if outstanding_amount <= 0:
+                status = "fully_paid"
+            elif paid_amount > 0:
+                status = "partially_paid"
+            else:
+                status = "unpaid"
+            
+            # Update the bill if amounts are different
+            current_paid = float(bill.get("paid_amount", 0))
+            current_outstanding = float(bill.get("outstanding_amount", 0))
+            current_status = bill.get("status", "unpaid")
+            
+            if (current_paid != paid_amount or 
+                current_outstanding != outstanding_amount or 
+                current_status != status):
+                
+                logger.info(f"Updating bill {bill_id}: paid {current_paid} -> {paid_amount}, outstanding {current_outstanding} -> {outstanding_amount}, status {current_status} -> {status}")
+                
+                bills_table.update_item(
+                    Key={"bill_id": bill_id},
+                    UpdateExpression="SET paid_amount = :paidAmount, outstanding_amount = :outstandingAmount, #s = :status, updated_at = :updatedAt",
+                    ExpressionAttributeNames={"#s": "status"},
+                    ExpressionAttributeValues={
+                        ":paidAmount": Decimal(str(paid_amount)),
+                        ":outstandingAmount": Decimal(str(outstanding_amount)),
+                        ":status": status,
+                        ":updatedAt": int(datetime.now().timestamp()),
+                    }
+                )
+                updated_count += 1
+        
+        logger.info(f"Recalculated amounts for {updated_count} bills")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": f"Recalculated amounts for {updated_count} bills"}),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "recalculate_bill_amounts")
+
+# Billing Configuration Functions
+def get_billing_config_items(event, context):
+    try:
+        response = billing_config_items_table.scan()
+        items = []
+        
+        for item in response.get("Items", []):
+            config_item = {
+                "id": item["config_item_id"],
+                "name": item["name"],
+                "description": item.get("description", ""),
+                "price": float(item["price"]) if isinstance(item["price"], Decimal) else item["price"],
+                "category": item["category"],
+                "isActive": item.get("is_active", True),
+                "createdAt": item.get("created_at"),
+                "updatedAt": item.get("updated_at"),
+            }
+            items.append(config_item)
+
+        logger.info(f"Fetched {len(items)} billing config items")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"items": items}, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_billing_config_items")
+
+def add_billing_config_item(event, context):
+    try:
+        body = json.loads(event.get("body", "{}"))
+        name = body.get("name")
+        description = body.get("description", "")
+        price = body.get("price")
+        category = body.get("category")
+
+        if not name or price is None or not category:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Name, price, and category are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        config_item_id = f"config-{os.urandom(16).hex()}"
+        now = int(datetime.now().timestamp())
+
+        item = {
+            "config_item_id": config_item_id,
+            "name": name,
+            "description": description,
+            "price": Decimal(str(price)),
+            "category": category,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        billing_config_items_table.put_item(Item=item)
+
+        response_item = {
+            "id": config_item_id,
+            "name": name,
+            "description": description,
+            "price": float(price),
+            "category": category,
+            "isActive": True,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        logger.info(f"Added billing config item: {config_item_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps(response_item, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "add_billing_config_item")
+
+# Received Item Templates Functions
+def get_received_item_templates(event, context):
+    try:
+        response = received_item_templates_table.scan()
+        templates = []
+        
+        for item in response.get("Items", []):
+            template = {
+                "id": item["template_id"],
+                "name": item["name"],
+                "description": item.get("description", ""),
+                "category": item["category"],
+                "isActive": item.get("is_active", True),
+                "createdAt": item.get("created_at"),
+                "updatedAt": item.get("updated_at"),
+            }
+            templates.append(template)
+
+        logger.info(f"Fetched {len(templates)} received item templates")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"templates": templates}, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_received_item_templates")
+
+def add_received_item_template(event, context):
+    try:
+        body = json.loads(event.get("body", "{}"))
+        name = body.get("name")
+        description = body.get("description", "")
+        category = body.get("category")
+
+        if not name or not category:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Name and category are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        template_id = f"template-{os.urandom(16).hex()}"
+        now = int(datetime.now().timestamp())
+
+        item = {
+            "template_id": template_id,
+            "name": name,
+            "description": description,
+            "category": category,
+            "is_active": True,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        received_item_templates_table.put_item(Item=item)
+
+        response_template = {
+            "id": template_id,
+            "name": name,
+            "description": description,
+            "category": category,
+            "isActive": True,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+        logger.info(f"Added received item template: {template_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps(response_template, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "add_received_item_template")
 
 def lambda_handler(event, context):
     logger.info(f"Received event: {json.dumps(event)}")
     http_method = event.get("httpMethod")
     path = event.get("path")
+    logger.info(f"DEBUG: Received path: {path}, httpMethod: {http_method}")
 
     if path == "/bills":
         if http_method == "GET":
@@ -443,11 +1124,48 @@ def lambda_handler(event, context):
             return add_bill(event, context)
         elif http_method == "OPTIONS":
             return handle_options(event, context)
+    elif path.startswith("/bills/") and "/payments" in path:
+        # Handle payment endpoints
+        if path.endswith("/payments"):
+            if http_method == "POST":
+                return add_payment(event, context)
+            elif http_method == "OPTIONS":
+                return handle_options(event, context)
     elif path.startswith("/bills/"):
-        if http_method == "PUT":
+        if http_method == "GET":
+            return get_bill_by_id(event, context)
+        elif http_method == "PUT":
             return update_bill(event, context)
         elif http_method == "DELETE":
             return delete_bill(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path == "/billing-config-items":
+        if http_method == "GET":
+            return get_billing_config_items(event, context)
+        elif http_method == "POST":
+            return add_billing_config_item(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path.startswith("/billing-config-items/"):
+        if http_method == "PUT":
+            return update_billing_config_item(event, context)
+        elif http_method == "DELETE":
+            return delete_billing_config_item(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path == "/received-item-templates":
+        if http_method == "GET":
+            return get_received_item_templates(event, context)
+        elif http_method == "POST":
+            return add_received_item_template(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path.startswith("/received-item-templates/"):
+        if http_method == "PUT":
+            return update_received_item_template(event, context)
+        elif http_method == "DELETE":
+            return delete_received_item_template(event, context)
         elif http_method == "OPTIONS":
             return handle_options(event, context)
     elif path.startswith("/customers/") and "/measurements" in path:
@@ -455,7 +1173,7 @@ def lambda_handler(event, context):
             return get_customer_measurements(event, context)
         elif http_method == "POST" and path.endswith("/measurements"):
             return save_customer_measurement(event, context)
-        elif http_method == "DELETE" and "/measurements/" in path and path.count('/') == 4: # /customers/{id}/measurements/{measurementId}
+        elif http_method == "DELETE" and "/measurements/" in path and path.count('/') == 4:
             return delete_customer_measurement(event, context)
         elif http_method == "OPTIONS":
             return handle_options(event, context)

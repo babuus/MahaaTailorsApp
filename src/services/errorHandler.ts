@@ -1,182 +1,436 @@
-import { AxiosError } from 'axios';
-import { ErrorState } from '../types';
+import { Alert } from 'react-native';
 
 export interface ApiError {
+  code: string;
   message: string;
-  status?: number;
-  code?: string;
-  type: 'network' | 'validation' | 'api' | 'unknown';
+  details?: any;
+  statusCode?: number;
 }
 
-export class NetworkError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'NetworkError';
-  }
+export interface ErrorHandlerOptions {
+  showAlert?: boolean;
+  logError?: boolean;
+  fallbackMessage?: string;
+  onRetry?: () => void;
+  context?: string;
 }
 
-export class ValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ValidationError';
-  }
-}
+// Error codes
+export const ERROR_CODES = {
+  // Network errors
+  NETWORK_ERROR: 'NETWORK_ERROR',
+  TIMEOUT_ERROR: 'TIMEOUT_ERROR',
+  CONNECTION_ERROR: 'CONNECTION_ERROR',
+  
+  // API errors
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  NOT_FOUND: 'NOT_FOUND',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  CONFLICT: 'CONFLICT',
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  
+  // Business logic errors
+  INSUFFICIENT_BALANCE: 'INSUFFICIENT_BALANCE',
+  DUPLICATE_ENTRY: 'DUPLICATE_ENTRY',
+  INVALID_STATE: 'INVALID_STATE',
+  
+  // Client errors
+  INVALID_INPUT: 'INVALID_INPUT',
+  MISSING_DATA: 'MISSING_DATA',
+  PERMISSION_DENIED: 'PERMISSION_DENIED',
+} as const;
 
-export class ApiServiceError extends Error {
-  public status?: number;
-  public code?: string;
-  public type: 'network' | 'validation' | 'api' | 'unknown';
+// Error messages
+export const ERROR_MESSAGES = {
+  [ERROR_CODES.NETWORK_ERROR]: 'Network connection failed. Please check your internet connection.',
+  [ERROR_CODES.TIMEOUT_ERROR]: 'Request timed out. Please try again.',
+  [ERROR_CODES.CONNECTION_ERROR]: 'Unable to connect to server. Please try again later.',
+  
+  [ERROR_CODES.VALIDATION_ERROR]: 'Please check your input and try again.',
+  [ERROR_CODES.NOT_FOUND]: 'The requested resource was not found.',
+  [ERROR_CODES.UNAUTHORIZED]: 'You are not authorized to perform this action.',
+  [ERROR_CODES.FORBIDDEN]: 'Access denied. You do not have permission to perform this action.',
+  [ERROR_CODES.CONFLICT]: 'This action conflicts with existing data.',
+  [ERROR_CODES.INTERNAL_ERROR]: 'An unexpected error occurred. Please try again.',
+  
+  [ERROR_CODES.INSUFFICIENT_BALANCE]: 'Payment amount exceeds the outstanding balance.',
+  [ERROR_CODES.DUPLICATE_ENTRY]: 'This entry already exists.',
+  [ERROR_CODES.INVALID_STATE]: 'Invalid operation for current state.',
+  
+  [ERROR_CODES.INVALID_INPUT]: 'Please provide valid input.',
+  [ERROR_CODES.MISSING_DATA]: 'Required information is missing.',
+  [ERROR_CODES.PERMISSION_DENIED]: 'You do not have permission to access this feature.',
+} as const;
 
-  constructor(message: string, status?: number, code?: string, type: 'network' | 'validation' | 'api' | 'unknown' = 'api') {
-    super(message);
-    this.name = 'ApiServiceError';
-    this.status = status;
-    this.code = code;
-    this.type = type;
-  }
-}
+// Error classification
+export const isNetworkError = (error: any): boolean => {
+  return (
+    error?.code === 'NETWORK_REQUEST_FAILED' ||
+    error?.message?.includes('Network request failed') ||
+    error?.message?.includes('fetch') ||
+    !navigator.onLine
+  );
+};
 
-export const handleApiError = (error: unknown): ApiError => {
-  console.error('API Error:', error);
+export const isTimeoutError = (error: any): boolean => {
+  return (
+    error?.code === 'TIMEOUT' ||
+    error?.message?.includes('timeout') ||
+    error?.message?.includes('Request timed out')
+  );
+};
 
-  if (error instanceof ApiServiceError) {
+export const isValidationError = (error: any): boolean => {
+  return (
+    error?.statusCode === 400 ||
+    error?.statusCode === 422 ||
+    error?.code === ERROR_CODES.VALIDATION_ERROR
+  );
+};
+
+export const isAuthError = (error: any): boolean => {
+  return (
+    error?.statusCode === 401 ||
+    error?.statusCode === 403 ||
+    error?.code === ERROR_CODES.UNAUTHORIZED ||
+    error?.code === ERROR_CODES.FORBIDDEN
+  );
+};
+
+export const isServerError = (error: any): boolean => {
+  return (
+    error?.statusCode >= 500 ||
+    error?.code === ERROR_CODES.INTERNAL_ERROR
+  );
+};
+
+// Error parsing
+export const parseApiError = (error: any): ApiError => {
+  // Handle network errors
+  if (isNetworkError(error)) {
     return {
-      message: error.message,
-      status: error.status,
-      code: error.code,
-      type: error.type,
+      code: ERROR_CODES.NETWORK_ERROR,
+      message: ERROR_MESSAGES[ERROR_CODES.NETWORK_ERROR],
+      statusCode: 0,
     };
   }
 
-  if (error instanceof NetworkError) {
+  // Handle timeout errors
+  if (isTimeoutError(error)) {
     return {
-      message: error.message,
-      type: 'network',
+      code: ERROR_CODES.TIMEOUT_ERROR,
+      message: ERROR_MESSAGES[ERROR_CODES.TIMEOUT_ERROR],
+      statusCode: 0,
     };
   }
 
-  if (error instanceof ValidationError) {
-    return {
-      message: error.message,
-      type: 'validation',
-    };
-  }
-
-  // Handle Axios errors
-  if (error && typeof error === 'object' && 'isAxiosError' in error) {
-    const axiosError = error as AxiosError;
+  // Handle API response errors
+  if (error?.response) {
+    const { status, data } = error.response;
     
-    if (!axiosError.response) {
-      // Network error
-      return {
-        message: 'Network error. Please check your internet connection.',
-        type: 'network',
-      };
-    }
+    return {
+      code: data?.error?.code || getErrorCodeFromStatus(status),
+      message: data?.error?.message || getErrorMessageFromStatus(status),
+      details: data?.error?.details,
+      statusCode: status,
+    };
+  }
 
-    const status = axiosError.response.status;
-    const responseData = axiosError.response.data as any;
-
-    // Handle specific status codes
-    switch (status) {
-      case 400:
-        return {
-          message: responseData?.message || 'Invalid request data.',
-          status,
-          type: 'validation',
-        };
-      case 401:
-        return {
-          message: 'Authentication required.',
-          status,
-          type: 'api',
-        };
-      case 403:
-        return {
-          message: 'Access denied.',
-          status,
-          type: 'api',
-        };
-      case 404:
-        return {
-          message: responseData?.message || 'Resource not found.',
-          status,
-          type: 'api',
-        };
-      case 409:
-        return {
-          message: responseData?.message || 'Conflict with existing data.',
-          status,
-          type: 'validation',
-        };
-      case 422:
-        return {
-          message: responseData?.message || 'Validation failed.',
-          status,
-          type: 'validation',
-        };
-      case 429:
-        return {
-          message: 'Too many requests. Please try again later.',
-          status,
-          type: 'api',
-        };
-      case 500:
-        return {
-          message: 'Server error. Please try again later.',
-          status,
-          type: 'api',
-        };
-      case 503:
-        return {
-          message: 'Service temporarily unavailable.',
-          status,
-          type: 'api',
-        };
-      default:
-        return {
-          message: responseData?.message || `Request failed with status ${status}`,
-          status,
-          type: 'api',
-        };
-    }
+  // Handle structured errors
+  if (error?.code && error?.message) {
+    return {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      statusCode: error.statusCode,
+    };
   }
 
   // Handle generic errors
-  if (error instanceof Error) {
-    return {
-      message: error.message,
-      type: 'unknown',
-    };
-  }
-
   return {
-    message: 'An unexpected error occurred.',
-    type: 'unknown',
+    code: ERROR_CODES.INTERNAL_ERROR,
+    message: error?.message || ERROR_MESSAGES[ERROR_CODES.INTERNAL_ERROR],
+    statusCode: 500,
   };
 };
 
-export const createErrorState = (error: ApiError, retryAction?: () => void): ErrorState => {
-  return {
-    hasError: true,
-    errorMessage: error.message,
-    errorType: error.type,
-    retryAction,
-  };
-};
-
-export const getUserFriendlyErrorMessage = (error: ApiError): string => {
-  switch (error.type) {
-    case 'network':
-      return 'Please check your internet connection and try again.';
-    case 'validation':
-      return error.message;
-    case 'api':
-      if (error.status === 500) {
-        return 'Something went wrong on our end. Please try again later.';
-      }
-      return error.message;
+const getErrorCodeFromStatus = (status: number): string => {
+  switch (status) {
+    case 400:
+    case 422:
+      return ERROR_CODES.VALIDATION_ERROR;
+    case 401:
+      return ERROR_CODES.UNAUTHORIZED;
+    case 403:
+      return ERROR_CODES.FORBIDDEN;
+    case 404:
+      return ERROR_CODES.NOT_FOUND;
+    case 409:
+      return ERROR_CODES.CONFLICT;
     default:
-      return 'Something went wrong. Please try again.';
+      return ERROR_CODES.INTERNAL_ERROR;
   }
+};
+
+const getErrorMessageFromStatus = (status: number): string => {
+  const code = getErrorCodeFromStatus(status);
+  return ERROR_MESSAGES[code as keyof typeof ERROR_MESSAGES];
+};
+
+// Error handling strategies
+export class ErrorHandler {
+  private static instance: ErrorHandler;
+  private errorLog: Array<{ error: ApiError; timestamp: Date; context?: string }> = [];
+
+  static getInstance(): ErrorHandler {
+    if (!ErrorHandler.instance) {
+      ErrorHandler.instance = new ErrorHandler();
+    }
+    return ErrorHandler.instance;
+  }
+
+  handle(error: any, options: ErrorHandlerOptions = {}): ApiError {
+    const {
+      showAlert = true,
+      logError = true,
+      fallbackMessage,
+      onRetry,
+      context,
+    } = options;
+
+    const parsedError = parseApiError(error);
+
+    // Log error
+    if (logError) {
+      this.logError(parsedError, context);
+    }
+
+    // Show user-friendly alert
+    if (showAlert) {
+      this.showErrorAlert(parsedError, fallbackMessage, onRetry);
+    }
+
+    return parsedError;
+  }
+
+  private logError(error: ApiError, context?: string): void {
+    const logEntry = {
+      error,
+      timestamp: new Date(),
+      context,
+    };
+
+    this.errorLog.push(logEntry);
+
+    // Keep only last 100 errors
+    if (this.errorLog.length > 100) {
+      this.errorLog = this.errorLog.slice(-100);
+    }
+
+    // Console log for development
+    if (__DEV__) {
+      console.error('Error Handler:', {
+        code: error.code,
+        message: error.message,
+        statusCode: error.statusCode,
+        context,
+        details: error.details,
+      });
+    }
+  }
+
+  private showErrorAlert(error: ApiError, fallbackMessage?: string, onRetry?: () => void): void {
+    const message = fallbackMessage || error.message;
+    const buttons: any[] = [];
+
+    // Add retry button for network errors
+    if (onRetry && (isNetworkError(error) || isTimeoutError(error) || isServerError(error))) {
+      buttons.push({
+        text: 'Retry',
+        onPress: onRetry,
+      });
+    }
+
+    buttons.push({
+      text: 'OK',
+      style: 'cancel',
+    });
+
+    Alert.alert('Error', message, buttons);
+  }
+
+  // Specific error handlers
+  handleNetworkError(onRetry?: () => void): void {
+    Alert.alert(
+      'Connection Error',
+      'Unable to connect to the server. Please check your internet connection and try again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        ...(onRetry ? [{ text: 'Retry', onPress: onRetry }] : []),
+      ]
+    );
+  }
+
+  handleValidationError(errors: Array<{ field: string; message: string }>): void {
+    const errorMessage = errors.length === 1 
+      ? errors[0].message
+      : `Please fix the following errors:\n${errors.map(e => `• ${e.message}`).join('\n')}`;
+
+    Alert.alert('Validation Error', errorMessage);
+  }
+
+  handleAuthError(onLogin?: () => void): void {
+    Alert.alert(
+      'Authentication Required',
+      'Your session has expired. Please log in again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        ...(onLogin ? [{ text: 'Log In', onPress: onLogin }] : []),
+      ]
+    );
+  }
+
+  handlePermissionError(): void {
+    Alert.alert(
+      'Access Denied',
+      'You do not have permission to perform this action. Please contact your administrator.',
+      [{ text: 'OK', style: 'cancel' }]
+    );
+  }
+
+  handleOfflineError(onRetry?: () => void): void {
+    Alert.alert(
+      'Offline',
+      'You are currently offline. Some features may not be available.',
+      [
+        { text: 'OK', style: 'cancel' },
+        ...(onRetry ? [{ text: 'Try Again', onPress: onRetry }] : []),
+      ]
+    );
+  }
+
+  // Success handlers
+  showSuccessMessage(message: string, onDismiss?: () => void): void {
+    Alert.alert('Success', message, [
+      { text: 'OK', onPress: onDismiss },
+    ]);
+  }
+
+  showConfirmationDialog(
+    title: string,
+    message: string,
+    onConfirm: () => void,
+    onCancel?: () => void
+  ): void {
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: 'Cancel', style: 'cancel', onPress: onCancel },
+        { text: 'Confirm', onPress: onConfirm },
+      ]
+    );
+  }
+
+  // Error recovery
+  createRetryHandler(operation: () => Promise<any>, maxRetries: number = 3) {
+    let retryCount = 0;
+
+    const executeWithRetry = async (): Promise<any> => {
+      try {
+        return await operation();
+      } catch (error) {
+        const parsedError = parseApiError(error);
+
+        // Only retry for network/server errors
+        if (
+          retryCount < maxRetries &&
+          (isNetworkError(parsedError) || isTimeoutError(parsedError) || isServerError(parsedError))
+        ) {
+          retryCount++;
+          
+          // Exponential backoff
+          const delay = Math.pow(2, retryCount) * 1000;
+          await new Promise(resolve => setTimeout(resolve, delay));
+          
+          return executeWithRetry();
+        }
+
+        throw error;
+      }
+    };
+
+    return executeWithRetry;
+  }
+
+  // Error reporting
+  getErrorLog(): Array<{ error: ApiError; timestamp: Date; context?: string }> {
+    return [...this.errorLog];
+  }
+
+  clearErrorLog(): void {
+    this.errorLog = [];
+  }
+
+  // Utility methods
+  isRecoverableError(error: ApiError): boolean {
+    return (
+      error.code === ERROR_CODES.NETWORK_ERROR ||
+      error.code === ERROR_CODES.TIMEOUT_ERROR ||
+      error.code === ERROR_CODES.INTERNAL_ERROR
+    );
+  }
+
+  shouldRetry(error: ApiError): boolean {
+    return (
+      isNetworkError(error) ||
+      isTimeoutError(error) ||
+      isServerError(error)
+    );
+  }
+
+  getErrorSeverity(error: ApiError): 'low' | 'medium' | 'high' | 'critical' {
+    if (isAuthError(error)) return 'high';
+    if (isServerError(error)) return 'critical';
+    if (isNetworkError(error) || isTimeoutError(error)) return 'medium';
+    if (isValidationError(error)) return 'low';
+    return 'medium';
+  }
+}
+
+// Convenience functions
+export const errorHandler = ErrorHandler.getInstance();
+
+export const handleError = (error: any, options?: ErrorHandlerOptions): ApiError => {
+  return errorHandler.handle(error, options);
+};
+
+export const handleNetworkError = (onRetry?: () => void): void => {
+  errorHandler.handleNetworkError(onRetry);
+};
+
+export const handleValidationError = (errors: Array<{ field: string; message: string }>): void => {
+  errorHandler.handleValidationError(errors);
+};
+
+export const handleAuthError = (onLogin?: () => void): void => {
+  errorHandler.handleAuthError(onLogin);
+};
+
+export const showSuccessMessage = (message: string, onDismiss?: () => void): void => {
+  errorHandler.showSuccessMessage(message, onDismiss);
+};
+
+export const showConfirmationDialog = (
+  title: string,
+  message: string,
+  onConfirm: () => void,
+  onCancel?: () => void
+): void => {
+  errorHandler.showConfirmationDialog(title, message, onConfirm, onCancel);
+};
+
+export const createRetryHandler = (operation: () => Promise<any>, maxRetries?: number) => {
+  return errorHandler.createRetryHandler(operation, maxRetries);
 };

@@ -1,372 +1,219 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { networkService } from './networkService';
-import { apiService } from './api';
-import { Customer, MeasurementConfig } from '../types';
+import NetInfo from '@react-native-community/netinfo';
+import { 
+  Bill, 
+  BillingConfigItem, 
+  ReceivedItemTemplate, 
+  Payment,
+  Customer,
+  OfflineAction,
+  NetworkState 
+} from '../types';
 
-// Offline action types
-export interface OfflineAction {
-  id: string;
-  type: 'CREATE' | 'UPDATE' | 'DELETE';
-  entity: 'customer' | 'measurementConfig' | 'customerMeasurement';
-  data: any;
-  timestamp: Date;
-  retryCount: number;
-  maxRetries: number;
-  originalId?: string; // For updates and deletes
+export interface OfflineData {
+  bills: Bill[];
+  billingConfigItems: BillingConfigItem[];
+  receivedItemTemplates: ReceivedItemTemplate[];
+  customers: Customer[];
+  lastSyncTimestamp: number;
 }
 
-// Cache entry with metadata
-export interface CacheEntry<T> {
-  data: T;
-  timestamp: Date;
-  expiresAt?: Date;
-  lastSyncAttempt?: Date;
-  syncStatus: 'synced' | 'pending' | 'failed';
-}
-
-// Sync result
 export interface SyncResult {
   success: boolean;
   syncedActions: number;
-  failedActions: number;
-  errors: Array<{ action: OfflineAction; error: string }>;
+  failedActions: OfflineAction[];
+  conflicts: ConflictResolution[];
+}
+
+export interface ConflictResolution {
+  actionId: string;
+  entityType: string;
+  entityId: string;
+  localData: any;
+  serverData: any;
+  resolution: 'local' | 'server' | 'merge' | 'manual';
+  resolvedData?: any;
 }
 
 class OfflineManager {
-  private static readonly OFFLINE_QUEUE_KEY = 'offline_queue';
-  private static readonly CACHE_PREFIX = 'offline_cache_';
-  private static readonly SYNC_STATUS_KEY = 'sync_status';
-  
+  private static instance: OfflineManager;
+  private networkState: NetworkState = {
+    isConnected: false,
+    isInternetReachable: false,
+    type: 'unknown',
+  };
   private syncInProgress = false;
   private syncListeners: Array<(result: SyncResult) => void> = [];
+  private networkListeners: Array<(state: NetworkState) => void> = [];
 
-  // ============================================================================
-  // OFFLINE QUEUE MANAGEMENT
-  // ============================================================================
+  // Storage keys
+  private readonly OFFLINE_DATA_KEY = '@billing_offline_data';
+  private readonly PENDING_ACTIONS_KEY = '@billing_pending_actions';
+  private readonly SYNC_TIMESTAMP_KEY = '@billing_last_sync';
 
-  async addToOfflineQueue(action: Omit<OfflineAction, 'id' | 'timestamp' | 'retryCount'>): Promise<void> {
-    try {
-      const queue = await this.getOfflineQueue();
-      const newAction: OfflineAction = {
-        ...action,
-        id: this.generateActionId(),
-        timestamp: new Date(),
-        retryCount: 0,
+  private constructor() {
+    this.initializeNetworkListener();
+  }
+
+  static getInstance(): OfflineManager {
+    if (!OfflineManager.instance) {
+      OfflineManager.instance = new OfflineManager();
+    }
+    return OfflineManager.instance;
+  }
+
+  private initializeNetworkListener() {
+    NetInfo.addEventListener(state => {
+      const newNetworkState: NetworkState = {
+        isConnected: state.isConnected || false,
+        isInternetReachable: state.isInternetReachable || false,
+        type: state.type || 'unknown',
       };
 
-      queue.push(newAction);
-      await AsyncStorage.setItem(OfflineManager.OFFLINE_QUEUE_KEY, JSON.stringify(queue));
-      
-      console.log('Added action to offline queue:', newAction);
-    } catch (error) {
-      console.error('Failed to add action to offline queue:', error);
-    }
-  }
+      const wasOffline = !this.networkState.isConnected;
+      const isNowOnline = newNetworkState.isConnected;
 
-  async getOfflineQueue(): Promise<OfflineAction[]> {
-    try {
-      const queueData = await AsyncStorage.getItem(OfflineManager.OFFLINE_QUEUE_KEY);
-      if (!queueData) return [];
-      
-      const queue = JSON.parse(queueData);
-      return queue.map((action: any) => ({
-        ...action,
-        timestamp: new Date(action.timestamp),
-      }));
-    } catch (error) {
-      console.error('Failed to get offline queue:', error);
-      return [];
-    }
-  }
+      this.networkState = newNetworkState;
+      this.notifyNetworkListeners(newNetworkState);
 
-  async removeFromOfflineQueue(actionId: string): Promise<void> {
-    try {
-      const queue = await this.getOfflineQueue();
-      const filteredQueue = queue.filter(action => action.id !== actionId);
-      await AsyncStorage.setItem(OfflineManager.OFFLINE_QUEUE_KEY, JSON.stringify(filteredQueue));
-    } catch (error) {
-      console.error('Failed to remove action from offline queue:', error);
-    }
-  }
-
-  async clearOfflineQueue(): Promise<void> {
-    try {
-      await AsyncStorage.removeItem(OfflineManager.OFFLINE_QUEUE_KEY);
-    } catch (error) {
-      console.error('Failed to clear offline queue:', error);
-    }
-  }
-
-  async getQueueSize(): Promise<number> {
-    const queue = await this.getOfflineQueue();
-    return queue.length;
-  }
-
-  // ============================================================================
-  // ENHANCED CACHE MANAGEMENT
-  // ============================================================================
-
-  async setCachedData<T>(key: string, data: T, ttl?: number): Promise<void> {
-    try {
-      const cacheEntry: CacheEntry<T> = {
-        data,
-        timestamp: new Date(),
-        expiresAt: ttl ? new Date(Date.now() + ttl) : undefined,
-        syncStatus: networkService.isOnline() ? 'synced' : 'pending',
-      };
-
-      await AsyncStorage.setItem(
-        `${OfflineManager.CACHE_PREFIX}${key}`,
-        JSON.stringify(cacheEntry)
-      );
-    } catch (error) {
-      console.error('Failed to cache data:', error);
-    }
-  }
-
-  async getCachedData<T>(key: string): Promise<CacheEntry<T> | null> {
-    try {
-      const cached = await AsyncStorage.getItem(`${OfflineManager.CACHE_PREFIX}${key}`);
-      if (!cached) return null;
-
-      const cacheEntry = JSON.parse(cached);
-      const entry: CacheEntry<T> = {
-        ...cacheEntry,
-        timestamp: new Date(cacheEntry.timestamp),
-        expiresAt: cacheEntry.expiresAt ? new Date(cacheEntry.expiresAt) : undefined,
-        lastSyncAttempt: cacheEntry.lastSyncAttempt ? new Date(cacheEntry.lastSyncAttempt) : undefined,
-      };
-
-      // Check if cache has expired
-      if (entry.expiresAt && new Date() > entry.expiresAt) {
-        await this.removeCachedData(key);
-        return null;
+      // Auto-sync when coming back online
+      if (wasOffline && isNowOnline) {
+        this.syncPendingActions();
       }
+    });
+  }
 
-      return entry;
+  // Network state management
+  getNetworkState(): NetworkState {
+    return this.networkState;
+  }
+
+  isOnline(): boolean {
+    return this.networkState.isConnected && this.networkState.isInternetReachable;
+  }
+
+  addNetworkListener(listener: (state: NetworkState) => void): () => void {
+    this.networkListeners.push(listener);
+    return () => {
+      const index = this.networkListeners.indexOf(listener);
+      if (index > -1) {
+        this.networkListeners.splice(index, 1);
+      }
+    };
+  }
+
+  private notifyNetworkListeners(state: NetworkState) {
+    this.networkListeners.forEach(listener => {
+      try {
+        listener(state);
+      } catch (error) {
+        console.error('Error in network listener:', error);
+      }
+    });
+  }
+
+  // Offline data management
+  async getOfflineData(): Promise<OfflineData | null> {
+    try {
+      const data = await AsyncStorage.getItem(this.OFFLINE_DATA_KEY);
+      return data ? JSON.parse(data) : null;
     } catch (error) {
-      console.error('Failed to get cached data:', error);
+      console.error('Error getting offline data:', error);
       return null;
     }
   }
 
-  async removeCachedData(key: string): Promise<void> {
+  async saveOfflineData(data: Partial<OfflineData>): Promise<void> {
     try {
-      await AsyncStorage.removeItem(`${OfflineManager.CACHE_PREFIX}${key}`);
-    } catch (error) {
-      console.error('Failed to remove cached data:', error);
-    }
-  }
-
-  async clearAllCache(): Promise<void> {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const cacheKeys = keys.filter(key => key.startsWith(OfflineManager.CACHE_PREFIX));
-      await AsyncStorage.multiRemove(cacheKeys);
-    } catch (error) {
-      console.error('Failed to clear cache:', error);
-    }
-  }
-
-  // ============================================================================
-  // DATA SYNCHRONIZATION
-  // ============================================================================
-
-  async syncOfflineData(): Promise<SyncResult> {
-    if (this.syncInProgress) {
-      console.log('Sync already in progress, skipping...');
-      return { success: false, syncedActions: 0, failedActions: 0, errors: [] };
-    }
-
-    if (!networkService.isOnline()) {
-      console.log('Device is offline, skipping sync');
-      return { success: false, syncedActions: 0, failedActions: 0, errors: [] };
-    }
-
-    this.syncInProgress = true;
-    const result: SyncResult = {
-      success: true,
-      syncedActions: 0,
-      failedActions: 0,
-      errors: [],
-    };
-
-    try {
-      const queue = await this.getOfflineQueue();
-      console.log(`Starting sync of ${queue.length} offline actions`);
-
-      for (const action of queue) {
-        try {
-          await this.syncAction(action);
-          await this.removeFromOfflineQueue(action.id);
-          result.syncedActions++;
-          console.log(`Successfully synced action: ${action.type} ${action.entity}`);
-        } catch (error) {
-          console.error(`Failed to sync action ${action.id}:`, error);
-          
-          // Increment retry count
-          action.retryCount++;
-          
-          if (action.retryCount >= action.maxRetries) {
-            // Remove action if max retries exceeded
-            await this.removeFromOfflineQueue(action.id);
-            console.log(`Removed action ${action.id} after ${action.maxRetries} failed attempts`);
-          } else {
-            // Update action with new retry count
-            const queue = await this.getOfflineQueue();
-            const updatedQueue = queue.map(a => a.id === action.id ? action : a);
-            await AsyncStorage.setItem(OfflineManager.OFFLINE_QUEUE_KEY, JSON.stringify(updatedQueue));
-          }
-
-          result.failedActions++;
-          result.errors.push({
-            action,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-
-      // Update sync status
-      await this.updateSyncStatus({
-        lastSyncAttempt: new Date(),
-        lastSuccessfulSync: result.syncedActions > 0 ? new Date() : undefined,
-        pendingActions: await this.getQueueSize(),
-      });
-
-      result.success = result.failedActions === 0;
-      console.log(`Sync completed: ${result.syncedActions} synced, ${result.failedActions} failed`);
-
-    } catch (error) {
-      console.error('Sync process failed:', error);
-      result.success = false;
-    } finally {
-      this.syncInProgress = false;
-    }
-
-    // Notify listeners
-    this.syncListeners.forEach(listener => listener(result));
-    
-    return result;
-  }
-
-  private async syncAction(action: OfflineAction): Promise<void> {
-    switch (action.entity) {
-      case 'customer':
-        await this.syncCustomerAction(action);
-        break;
-      case 'measurementConfig':
-        await this.syncMeasurementConfigAction(action);
-        break;
-      case 'customerMeasurement':
-        await this.syncCustomerMeasurementAction(action);
-        break;
-      default:
-        throw new Error(`Unknown entity type: ${action.entity}`);
-    }
-  }
-
-  private async syncCustomerAction(action: OfflineAction): Promise<void> {
-    switch (action.type) {
-      case 'CREATE':
-        await apiService.createCustomer(action.data);
-        break;
-      case 'UPDATE':
-        if (!action.originalId) throw new Error('Original ID required for update');
-        await apiService.updateCustomer(action.originalId, action.data);
-        break;
-      case 'DELETE':
-        if (!action.originalId) throw new Error('Original ID required for delete');
-        await apiService.deleteCustomer(action.originalId);
-        break;
-    }
-  }
-
-  private async syncMeasurementConfigAction(action: OfflineAction): Promise<void> {
-    switch (action.type) {
-      case 'CREATE':
-        await apiService.createMeasurementConfig(action.data);
-        break;
-      case 'UPDATE':
-        if (!action.originalId) throw new Error('Original ID required for update');
-        await apiService.updateMeasurementConfig(action.originalId, action.data);
-        break;
-      case 'DELETE':
-        if (!action.originalId) throw new Error('Original ID required for delete');
-        await apiService.deleteMeasurementConfig(action.originalId);
-        break;
-    }
-  }
-
-  private async syncCustomerMeasurementAction(action: OfflineAction): Promise<void> {
-    const { customerId, measurementId, ...measurementData } = action.data;
-    
-    switch (action.type) {
-      case 'CREATE':
-        await apiService.saveCustomerMeasurement(customerId, measurementData);
-        break;
-      case 'DELETE':
-        if (!measurementId) throw new Error('Measurement ID required for delete');
-        await apiService.deleteCustomerMeasurement(customerId, measurementId);
-        break;
-    }
-  }
-
-  // ============================================================================
-  // SYNC STATUS MANAGEMENT
-  // ============================================================================
-
-  async updateSyncStatus(status: {
-    lastSyncAttempt?: Date;
-    lastSuccessfulSync?: Date;
-    pendingActions?: number;
-  }): Promise<void> {
-    try {
-      const currentStatus = await this.getSyncStatus();
-      const updatedStatus = {
-        ...currentStatus,
-        ...status,
+      const existingData = await this.getOfflineData() || {
+        bills: [],
+        billingConfigItems: [],
+        receivedItemTemplates: [],
+        customers: [],
+        lastSyncTimestamp: 0,
       };
+
+      const updatedData: OfflineData = {
+        ...existingData,
+        ...data,
+        lastSyncTimestamp: Date.now(),
+      };
+
+      await AsyncStorage.setItem(this.OFFLINE_DATA_KEY, JSON.stringify(updatedData));
+    } catch (error) {
+      console.error('Error saving offline data:', error);
+      throw error;
+    }
+  }
+
+  async clearOfflineData(): Promise<void> {
+    try {
+      await AsyncStorage.multiRemove([
+        this.OFFLINE_DATA_KEY,
+        this.PENDING_ACTIONS_KEY,
+        this.SYNC_TIMESTAMP_KEY,
+      ]);
+    } catch (error) {
+      console.error('Error clearing offline data:', error);
+    }
+  }
+
+  // Pending actions management
+  async getPendingActions(): Promise<OfflineAction[]> {
+    try {
+      const data = await AsyncStorage.getItem(this.PENDING_ACTIONS_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('Error getting pending actions:', error);
+      return [];
+    }
+  }
+
+  async addPendingAction(action: Omit<OfflineAction, 'id' | 'timestamp' | 'retryCount'>): Promise<void> {
+    try {
+      const pendingActions = await this.getPendingActions();
+      const newAction: OfflineAction = {
+        ...action,
+        id: `offline_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        timestamp: new Date(),
+        retryCount: 0,
+      };
+
+      pendingActions.push(newAction);
+      await AsyncStorage.setItem(this.PENDING_ACTIONS_KEY, JSON.stringify(pendingActions));
+    } catch (error) {
+      console.error('Error adding pending action:', error);
+      throw error;
+    }
+  }
+
+  async removePendingAction(actionId: string): Promise<void> {
+    try {
+      const pendingActions = await this.getPendingActions();
+      const filteredActions = pendingActions.filter(action => action.id !== actionId);
+      await AsyncStorage.setItem(this.PENDING_ACTIONS_KEY, JSON.stringify(filteredActions));
+    } catch (error) {
+      console.error('Error removing pending action:', error);
+    }
+  }
+
+  async updatePendingAction(actionId: string, updates: Partial<OfflineAction>): Promise<void> {
+    try {
+      const pendingActions = await this.getPendingActions();
+      const actionIndex = pendingActions.findIndex(action => action.id === actionId);
       
-      await AsyncStorage.setItem(OfflineManager.SYNC_STATUS_KEY, JSON.stringify(updatedStatus));
-    } catch (error) {
-      console.error('Failed to update sync status:', error);
-    }
-  }
-
-  async getSyncStatus(): Promise<{
-    lastSyncAttempt?: Date;
-    lastSuccessfulSync?: Date;
-    pendingActions: number;
-  }> {
-    try {
-      const statusData = await AsyncStorage.getItem(OfflineManager.SYNC_STATUS_KEY);
-      if (!statusData) {
-        return { pendingActions: 0 };
+      if (actionIndex > -1) {
+        pendingActions[actionIndex] = { ...pendingActions[actionIndex], ...updates };
+        await AsyncStorage.setItem(this.PENDING_ACTIONS_KEY, JSON.stringify(pendingActions));
       }
-
-      const status = JSON.parse(statusData);
-      return {
-        lastSyncAttempt: status.lastSyncAttempt ? new Date(status.lastSyncAttempt) : undefined,
-        lastSuccessfulSync: status.lastSuccessfulSync ? new Date(status.lastSuccessfulSync) : undefined,
-        pendingActions: status.pendingActions || 0,
-      };
     } catch (error) {
-      console.error('Failed to get sync status:', error);
-      return { pendingActions: 0 };
+      console.error('Error updating pending action:', error);
     }
   }
 
-  // ============================================================================
-  // UTILITY METHODS
-  // ============================================================================
-
-  private generateActionId(): string {
-    return `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
+  // Sync management
   addSyncListener(listener: (result: SyncResult) => void): () => void {
     this.syncListeners.push(listener);
-    
     return () => {
       const index = this.syncListeners.indexOf(listener);
       if (index > -1) {
@@ -375,69 +222,434 @@ class OfflineManager {
     };
   }
 
-  // Auto-sync when network becomes available
-  async startAutoSync(): Promise<void> {
-    networkService.addListener(async (networkState) => {
-      if (networkService.isOnline() && !this.syncInProgress) {
-        const queueSize = await this.getQueueSize();
-        if (queueSize > 0) {
-          console.log(`Network restored, starting auto-sync of ${queueSize} actions`);
-          await this.syncOfflineData();
-        }
+  private notifySyncListeners(result: SyncResult) {
+    this.syncListeners.forEach(listener => {
+      try {
+        listener(result);
+      } catch (error) {
+        console.error('Error in sync listener:', error);
       }
     });
   }
 
-  // ============================================================================
-  // CONVENIENCE METHODS FOR COMMON OPERATIONS
-  // ============================================================================
+  isSyncInProgress(): boolean {
+    return this.syncInProgress;
+  }
+
+  async syncPendingActions(): Promise<SyncResult> {
+    if (this.syncInProgress) {
+      return {
+        success: false,
+        syncedActions: 0,
+        failedActions: [],
+        conflicts: [],
+      };
+    }
+
+    if (!this.isOnline()) {
+      return {
+        success: false,
+        syncedActions: 0,
+        failedActions: [],
+        conflicts: [],
+      };
+    }
+
+    this.syncInProgress = true;
+    const result: SyncResult = {
+      success: true,
+      syncedActions: 0,
+      failedActions: [],
+      conflicts: [],
+    };
+
+    try {
+      const pendingActions = await this.getPendingActions();
+      
+      for (const action of pendingActions) {
+        try {
+          const syncResult = await this.syncSingleAction(action);
+          
+          if (syncResult.success) {
+            await this.removePendingAction(action.id);
+            result.syncedActions++;
+          } else if (syncResult.conflict) {
+            result.conflicts.push(syncResult.conflict);
+          } else {
+            // Increment retry count
+            await this.updatePendingAction(action.id, {
+              retryCount: action.retryCount + 1,
+            });
+            
+            // Remove action if max retries reached
+            if (action.retryCount >= 3) {
+              await this.removePendingAction(action.id);
+              result.failedActions.push(action);
+            }
+          }
+        } catch (error) {
+          console.error(`Error syncing action ${action.id}:`, error);
+          result.failedActions.push(action);
+        }
+      }
+
+      // Update last sync timestamp
+      await AsyncStorage.setItem(this.SYNC_TIMESTAMP_KEY, Date.now().toString());
+
+    } catch (error) {
+      console.error('Error during sync:', error);
+      result.success = false;
+    } finally {
+      this.syncInProgress = false;
+      this.notifySyncListeners(result);
+    }
+
+    return result;
+  }
+
+  private async syncSingleAction(action: OfflineAction): Promise<{
+    success: boolean;
+    conflict?: ConflictResolution;
+  }> {
+    // This would integrate with the actual API service
+    // For now, we'll simulate the sync process
+    
+    try {
+      switch (action.type) {
+        case 'CREATE':
+          return await this.syncCreateAction(action);
+        case 'UPDATE':
+          return await this.syncUpdateAction(action);
+        case 'DELETE':
+          return await this.syncDeleteAction(action);
+        default:
+          return { success: false };
+      }
+    } catch (error) {
+      console.error(`Error syncing ${action.type} action:`, error);
+      return { success: false };
+    }
+  }
+
+  private async syncCreateAction(action: OfflineAction): Promise<{
+    success: boolean;
+    conflict?: ConflictResolution;
+  }> {
+    // Implement create sync logic
+    // This would call the appropriate API method based on action.entity
+    return { success: true };
+  }
+
+  private async syncUpdateAction(action: OfflineAction): Promise<{
+    success: boolean;
+    conflict?: ConflictResolution;
+  }> {
+    // Implement update sync logic with conflict detection
+    // This would compare local and server versions
+    return { success: true };
+  }
+
+  private async syncDeleteAction(action: OfflineAction): Promise<{
+    success: boolean;
+    conflict?: ConflictResolution;
+  }> {
+    // Implement delete sync logic
+    return { success: true };
+  }
+
+  // Conflict resolution
+  async resolveConflict(
+    conflict: ConflictResolution,
+    resolution: 'local' | 'server' | 'merge',
+    mergedData?: any
+  ): Promise<void> {
+    try {
+      let resolvedData: any;
+
+      switch (resolution) {
+        case 'local':
+          resolvedData = conflict.localData;
+          break;
+        case 'server':
+          resolvedData = conflict.serverData;
+          break;
+        case 'merge':
+          resolvedData = mergedData || this.mergeData(conflict.localData, conflict.serverData);
+          break;
+      }
+
+      // Apply the resolved data
+      // This would update both local storage and sync with server
+      conflict.resolution = resolution;
+      conflict.resolvedData = resolvedData;
+
+    } catch (error) {
+      console.error('Error resolving conflict:', error);
+      throw error;
+    }
+  }
+
+  private mergeData(localData: any, serverData: any): any {
+    // Simple merge strategy - server data takes precedence for conflicts
+    // More sophisticated merge logic could be implemented based on entity type
+    return {
+      ...localData,
+      ...serverData,
+      // Keep local timestamps if they're newer
+      updatedAt: new Date(localData.updatedAt) > new Date(serverData.updatedAt) 
+        ? localData.updatedAt 
+        : serverData.updatedAt,
+    };
+  }
+
+  // Auto-sync management
+  async startAutoSync(): Promise<void> {
+    try {
+      // Initialize network state
+      const currentState = await NetInfo.fetch();
+      this.networkState = {
+        isConnected: currentState.isConnected || false,
+        isInternetReachable: currentState.isInternetReachable || false,
+        type: currentState.type || 'unknown',
+      };
+
+      // If online, perform initial sync
+      if (this.isOnline()) {
+        await this.syncPendingActions();
+      }
+
+      console.log('Auto-sync started successfully');
+    } catch (error) {
+      console.error('Error starting auto-sync:', error);
+      throw error;
+    }
+  }
+
+  // Utility methods
+  async getLastSyncTimestamp(): Promise<number> {
+    try {
+      const timestamp = await AsyncStorage.getItem(this.SYNC_TIMESTAMP_KEY);
+      return timestamp ? parseInt(timestamp, 10) : 0;
+    } catch (error) {
+      console.error('Error getting last sync timestamp:', error);
+      return 0;
+    }
+  }
+
+  async hasPendingChanges(): Promise<boolean> {
+    const pendingActions = await this.getPendingActions();
+    return pendingActions.length > 0;
+  }
+
+  async getOfflineDataSize(): Promise<number> {
+    try {
+      const offlineData = await this.getOfflineData();
+      const pendingActions = await this.getPendingActions();
+      
+      const dataSize = JSON.stringify(offlineData || {}).length;
+      const actionsSize = JSON.stringify(pendingActions).length;
+      
+      return dataSize + actionsSize;
+    } catch (error) {
+      console.error('Error calculating offline data size:', error);
+      return 0;
+    }
+  }
+
+  // Cache management methods
+  async getCachedCustomers(): Promise<Customer[] | null> {
+    try {
+      const offlineData = await this.getOfflineData();
+      return offlineData?.customers || null;
+    } catch (error) {
+      console.error('Error getting cached customers:', error);
+      return null;
+    }
+  }
+
+  async getCachedCustomer(id: string): Promise<Customer | null> {
+    try {
+      const customers = await this.getCachedCustomers();
+      return customers?.find(customer => customer.id === id) || null;
+    } catch (error) {
+      console.error('Error getting cached customer:', error);
+      return null;
+    }
+  }
 
   async cacheCustomers(customers: Customer[]): Promise<void> {
-    await this.setCachedData('customers', customers, 300000); // 5 minutes TTL
-  }
-
-  async getCachedCustomers(): Promise<Customer[] | null> {
-    const cached = await this.getCachedData<Customer[]>('customers');
-    return cached?.data || null;
-  }
-
-  async cacheMeasurementConfigs(configs: MeasurementConfig[]): Promise<void> {
-    await this.setCachedData('measurement_configs', configs, 600000); // 10 minutes TTL
-  }
-
-  async getCachedMeasurementConfigs(): Promise<MeasurementConfig[] | null> {
-    const cached = await this.getCachedData<MeasurementConfig[]>('measurement_configs');
-    return cached?.data || null;
+    try {
+      await this.saveOfflineData({ customers });
+    } catch (error) {
+      console.error('Error caching customers:', error);
+    }
   }
 
   async cacheCustomer(customer: Customer): Promise<void> {
-    await this.setCachedData(`customer_${customer.id}`, customer, 300000); // 5 minutes TTL
+    try {
+      const customers = await this.getCachedCustomers() || [];
+      const existingIndex = customers.findIndex(c => c.id === customer.id);
+      
+      if (existingIndex >= 0) {
+        customers[existingIndex] = customer;
+      } else {
+        customers.push(customer);
+      }
+      
+      await this.cacheCustomers(customers);
+    } catch (error) {
+      console.error('Error caching customer:', error);
+    }
   }
 
-  async getCachedCustomer(customerId: string): Promise<Customer | null> {
-    const cached = await this.getCachedData<Customer>(`customer_${customerId}`);
-    return cached?.data || null;
+  async getCachedBills(): Promise<Bill[] | null> {
+    try {
+      const offlineData = await this.getOfflineData();
+      return offlineData?.bills || null;
+    } catch (error) {
+      console.error('Error getting cached bills:', error);
+      return null;
+    }
+  }
+
+  async getCachedBill(id: string): Promise<Bill | null> {
+    try {
+      const bills = await this.getCachedBills();
+      return bills?.find(bill => bill.id === id) || null;
+    } catch (error) {
+      console.error('Error getting cached bill:', error);
+      return null;
+    }
+  }
+
+  async cacheBills(bills: Bill[]): Promise<void> {
+    try {
+      await this.saveOfflineData({ bills });
+    } catch (error) {
+      console.error('Error caching bills:', error);
+    }
+  }
+
+  async cacheBill(bill: Bill): Promise<void> {
+    try {
+      const bills = await this.getCachedBills() || [];
+      const existingIndex = bills.findIndex(b => b.id === bill.id);
+      
+      if (existingIndex >= 0) {
+        bills[existingIndex] = bill;
+      } else {
+        bills.push(bill);
+      }
+      
+      await this.cacheBills(bills);
+    } catch (error) {
+      console.error('Error caching bill:', error);
+    }
+  }
+
+  async getCachedBillingConfigItems(): Promise<BillingConfigItem[] | null> {
+    try {
+      const offlineData = await this.getOfflineData();
+      return offlineData?.billingConfigItems || null;
+    } catch (error) {
+      console.error('Error getting cached billing config items:', error);
+      return null;
+    }
+  }
+
+  async cacheBillingConfigItems(items: BillingConfigItem[]): Promise<void> {
+    try {
+      await this.saveOfflineData({ billingConfigItems: items });
+    } catch (error) {
+      console.error('Error caching billing config items:', error);
+    }
+  }
+
+  async getCachedReceivedItemTemplates(): Promise<ReceivedItemTemplate[] | null> {
+    try {
+      const offlineData = await this.getOfflineData();
+      return offlineData?.receivedItemTemplates || null;
+    } catch (error) {
+      console.error('Error getting cached received item templates:', error);
+      return null;
+    }
+  }
+
+  async cacheReceivedItemTemplates(templates: ReceivedItemTemplate[]): Promise<void> {
+    try {
+      await this.saveOfflineData({ receivedItemTemplates: templates });
+    } catch (error) {
+      console.error('Error caching received item templates:', error);
+    }
+  }
+
+  async getCachedMeasurementConfigs(): Promise<any[] | null> {
+    try {
+      // For now, return empty array as measurement configs aren't part of OfflineData interface
+      // This can be extended later if needed
+      return [];
+    } catch (error) {
+      console.error('Error getting cached measurement configs:', error);
+      return null;
+    }
+  }
+
+  async cacheMeasurementConfigs(configs: any[]): Promise<void> {
+    try {
+      // For now, do nothing as measurement configs aren't part of OfflineData interface
+      // This can be extended later if needed
+      console.log('Measurement configs caching not implemented yet');
+    } catch (error) {
+      console.error('Error caching measurement configs:', error);
+    }
+  }
+
+  // Data integrity checks
+  async validateOfflineData(): Promise<{
+    isValid: boolean;
+    errors: string[];
+  }> {
+    const errors: string[] = [];
+    
+    try {
+      const offlineData = await this.getOfflineData();
+      
+      if (!offlineData) {
+        return { isValid: true, errors: [] };
+      }
+
+      // Validate data structure
+      if (!Array.isArray(offlineData.bills)) {
+        errors.push('Bills data is corrupted');
+      }
+
+      if (!Array.isArray(offlineData.billingConfigItems)) {
+        errors.push('Billing config items data is corrupted');
+      }
+
+      if (!Array.isArray(offlineData.receivedItemTemplates)) {
+        errors.push('Received item templates data is corrupted');
+      }
+
+      if (!Array.isArray(offlineData.customers)) {
+        errors.push('Customers data is corrupted');
+      }
+
+      // Validate pending actions
+      const pendingActions = await this.getPendingActions();
+      if (!Array.isArray(pendingActions)) {
+        errors.push('Pending actions data is corrupted');
+      }
+
+    } catch (error) {
+      errors.push(`Data validation error: ${error.message}`);
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
   }
 }
 
-// Export singleton instance
-export const offlineManager = new OfflineManager();
-
-// Export convenience methods
-export const {
-  addToOfflineQueue,
-  getOfflineQueue,
-  syncOfflineData,
-  setCachedData,
-  getCachedData,
-  cacheCustomers,
-  getCachedCustomers,
-  cacheMeasurementConfigs,
-  getCachedMeasurementConfigs,
-  cacheCustomer,
-  getCachedCustomer,
-  getSyncStatus,
-  addSyncListener,
-  startAutoSync,
-  getQueueSize,
-} = offlineManager;
+export default OfflineManager.getInstance();

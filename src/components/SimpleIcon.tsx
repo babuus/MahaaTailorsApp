@@ -19,11 +19,12 @@ const ICON_MAPPING = {
   menu: 'menu',
   close: 'close',
   back: 'arrow-back',
+  'arrow-back': 'arrow-back',
   home: 'home',
   dashboard: 'dashboard',
   settings: 'settings',
   search: 'search',
-  
+
   // Actions
   add: 'add',
   edit: 'edit',
@@ -36,65 +37,77 @@ const ICON_MAPPING = {
   download: 'download',
   share: 'share',
   copy: 'content-copy',
-  
+  print: 'print',
+
   // People & Communication
   person: 'person',
+  'person-add': 'person-add',
   people: 'people',
   phone: 'phone',
   email: 'email',
   message: 'message',
   notifications: 'notifications',
-  
+
   // Status & Feedback
   star: 'star',
   heart: 'favorite',
   success: 'check-circle',
+  'check-circle': 'check-circle',
   error: 'error',
   warning: 'warning',
   info: 'info',
   help: 'help',
-  
+  history: 'history',
+
   // Business & Commerce
   shopping: 'shopping-cart',
+  'shopping-cart': 'shopping-cart',
   payment: 'payment',
   receipt: 'receipt',
   money: 'attach-money',
-  
+  inventory: 'inventory',
+
   // Time & Location
   calendar: 'calendar-today',
+  'calendar-today': 'calendar-today',
   time: 'access-time',
   location: 'location-on',
-  
+
   // Media & Files
   camera: 'camera-alt',
   image: 'image',
   file: 'description',
   folder: 'folder',
-  
+
   // Visibility & Security
   visible: 'visibility',
+  'visibility-off': 'visibility-off',
   hidden: 'visibility-off',
   lock: 'lock',
   unlock: 'lock-open',
-  
+
+  // Checkboxes
+  'check-box': 'check-box',
+  'check-box-outline-blank': 'check-box-outline-blank',
+
   // Directional
   up: 'keyboard-arrow-up',
   down: 'keyboard-arrow-down',
   left: 'keyboard-arrow-left',
   right: 'keyboard-arrow-right',
-  
+
   // Connectivity
   power: 'power',
   wifi: 'wifi',
   cloud: 'cloud',
   cloudOff: 'cloud-off',
-  
+
   // Tailoring specific
   straighten: 'straighten',
   ruler: 'straighten',
   measure: 'straighten',
   scissors: 'content-cut',
-  
+
   // Additional professional icons
   badge: 'badge',
   cake: 'cake',
@@ -109,6 +122,16 @@ const ICON_MAPPING = {
   'keyboard-arrow-down': 'keyboard-arrow-down',
   'keyboard-arrow-left': 'keyboard-arrow-left',
   'keyboard-arrow-right': 'keyboard-arrow-right',
+
+  // Additional missing icons
+  filter: 'filter-list',
+  sort: 'sort',
+  today: 'today',
+  'chevron-left': 'chevron-left',
+  'chevron-right': 'chevron-right',
+  'event-available': 'event-available',
+  'expand-more': 'expand-more',
+  'expand-less': 'expand-less',
 } as const;
 
 const SimpleIcon: React.FC<SimpleIconProps> = ({
@@ -123,7 +146,7 @@ const SimpleIcon: React.FC<SimpleIconProps> = ({
 
   return (
     <View style={[styles.container, style]}>
-      <Icon 
+      <Icon
         name={iconName}
         size={size}
         color={color}

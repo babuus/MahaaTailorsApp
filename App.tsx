@@ -19,7 +19,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { COLORS } from './src/constants';
 import { ThemeProvider, useThemeContext } from './src/contexts/ThemeContext';
 import { UpdateProvider } from './src/contexts/UpdateContext';
-import { offlineManager } from './src/services/offlineManager';
+import offlineManager from './src/services/offlineManager';
 import { AccessibilityUtils } from './src/utils/accessibility';
 import { animationConfig } from './src/config/animationConfig';
 import { performanceMonitor } from './src/utils/performanceMonitor';
@@ -55,7 +55,7 @@ const AppContent: React.FC = () => {
   const theme = isDarkMode ? darkTheme : lightTheme;
 
   return (
-    <PaperProvider 
+    <PaperProvider
       theme={theme}
       settings={{
         icon: (props) => <SimpleIcon name={props.name || 'help'} size={props.size} color={props.color} />,
@@ -80,29 +80,29 @@ function App(): React.JSX.Element {
         // Initialize accessibility utilities
         await AccessibilityUtils.initialize();
         console.log('Accessibility utilities initialized successfully');
-        
+
         // Initialize animation configuration
         animationConfig.resetToDefaults();
         console.log('Animation system initialized successfully');
-        
+
         // Start performance monitoring
         performanceMonitor.resetMetrics();
         console.log('Performance monitoring started successfully');
-        
+
         // Initialize animation error handler
         const { animationErrorHandler } = await import('./src/utils/animationErrorHandler');
         animationErrorHandler.reset();
         console.log('Animation error handler initialized successfully');
-        
+
         // Start auto-sync when network becomes available
         await offlineManager.startAutoSync();
         console.log('Offline manager initialized successfully');
-        
+
         // Log initial performance report after 2 seconds
         setTimeout(() => {
           performanceMonitor.logPerformanceReport();
         }, 2000);
-        
+
       } catch (error) {
         console.error('Failed to initialize app:', error);
       }

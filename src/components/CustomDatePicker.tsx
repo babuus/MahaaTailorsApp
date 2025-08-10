@@ -29,7 +29,7 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   minimumDate,
 }) => {
   const { isDarkMode } = useThemeContext();
-  const currentDate = value || new Date();
+  const currentDate = value && value instanceof Date ? value : new Date();
   
   const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());

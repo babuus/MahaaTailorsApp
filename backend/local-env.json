@@ -12,6 +12,8 @@
   },
   "BillingLambda": {
     "BILLS_TABLE_NAME": "mahaatailors-Bills-dev",
-    "CUSTOMERS_TABLE_NAME": "mahaatailors-Customers-dev"
+    "CUSTOMERS_TABLE_NAME": "mahaatailors-Customers-dev",
+    "BILLING_CONFIG_ITEMS_TABLE_NAME": "mahaatailors-BillingConfigItems-dev",
+    "RECEIVED_ITEM_TEMPLATES_TABLE_NAME": "mahaatailors-ReceivedItemTemplates-dev"
   }
 }
