@@ -31,8 +31,10 @@ import MeasurementConfigScreen from '../screens/MeasurementConfigScreen';
 import MeasurementConfigFormScreen from '../screens/MeasurementConfigFormScreen';
 import { BillingScreen } from '../screens/BillingScreen';
 import { BillingFormScreen } from '../screens/BillingFormScreen';
+import BillDetailScreen from '../screens/BillDetailScreen';
 import { BillPrintScreen } from '../screens/BillPrintScreen';
 import { ReceivedItemsScreen } from '../screens/ReceivedItemsScreen';
+import { ItemsManagementScreen } from '../screens/ItemsManagementScreen';
 import { BillingConfigScreen } from '../screens/BillingConfigScreen';
 import { BillingConfigItemForm } from '../screens/BillingConfigItemForm';
 import { ReceivedItemTemplateForm } from '../screens/ReceivedItemTemplateForm';
@@ -41,7 +43,7 @@ import SettingsScreen from '../screens/SettingsScreen';
 
 
 
-type Screen = 'Dashboard' | 'CustomerManagement' | 'CustomerDetail' | 'CustomerForm' | 'MeasurementConfig' | 'MeasurementConfigForm' | 'Billing' | 'BillingForm' | 'BillPrint' | 'ReceivedItems' | 'BillingConfig' | 'BillingConfigItemForm' | 'ReceivedItemTemplateForm' | 'Calendar' | 'Settings';
+type Screen = 'Dashboard' | 'CustomerManagement' | 'CustomerDetail' | 'CustomerForm' | 'MeasurementConfig' | 'MeasurementConfigForm' | 'Billing' | 'BillingForm' | 'BillDetail' | 'BillPrint' | 'ReceivedItems' | 'ItemsManagement' | 'BillingConfig' | 'BillingConfigItemForm' | 'ReceivedItemTemplateForm' | 'Calendar' | 'Settings';
 
 const { width: screenWidth } = Dimensions.get('window');
 const DRAWER_WIDTH = screenWidth * 0.7; // Reduced width to add space on the right
@@ -349,10 +351,14 @@ const DrawerNavigator: React.FC = () => {
         return <BillingScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'BillingForm':
         return <BillingFormScreen navigation={mockNavigation as any} route={mockRoute as any} />;
+      case 'BillDetail':
+        return <BillDetailScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'BillPrint':
         return <BillPrintScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'ReceivedItems':
         return <ReceivedItemsScreen navigation={mockNavigation as any} route={mockRoute as any} />;
+      case 'ItemsManagement':
+        return <ItemsManagementScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'BillingConfig':
         return <BillingConfigScreen navigation={mockNavigation as any} />;
       case 'BillingConfigItemForm':
@@ -386,10 +392,14 @@ const DrawerNavigator: React.FC = () => {
         return 'Billing';
       case 'BillingForm':
         return currentNavigation.params?.mode === 'edit' ? 'Edit Bill' : 'Create Bill';
+      case 'BillDetail':
+        return currentNavigation.params?.bill?.billNumber ? `Bill ${currentNavigation.params.bill.billNumber}` : 'Bill Details';
       case 'BillPrint':
         return 'Print Bill';
       case 'ReceivedItems':
         return 'Received Items';
+      case 'ItemsManagement':
+        return currentNavigation.params?.bill?.billNumber ? `Items - ${currentNavigation.params.bill.billNumber}` : 'Items Management';
       case 'BillingConfig':
         return 'Billing Config';
       case 'BillingConfigItemForm':
@@ -423,10 +433,14 @@ const DrawerNavigator: React.FC = () => {
         return 'Billing';
       case 'BillingForm':
         return params?.mode === 'edit' ? 'Edit Bill' : 'Create Bill';
+      case 'BillDetail':
+        return params?.bill?.billNumber ? `Bill ${params.bill.billNumber}` : 'Bill Details';
       case 'BillPrint':
         return 'Print Bill';
       case 'ReceivedItems':
         return 'Received Items';
+      case 'ItemsManagement':
+        return params?.bill?.billNumber ? `Items - ${params.bill.billNumber}` : 'Items Management';
       case 'BillingConfig':
         return 'Billing Config';
       case 'BillingConfigItemForm':
@@ -455,8 +469,10 @@ const DrawerNavigator: React.FC = () => {
            currentScreen === 'CustomerForm' || 
            currentScreen === 'MeasurementConfigForm' ||
            currentScreen === 'BillingForm' ||
+           currentScreen === 'BillDetail' ||
            currentScreen === 'BillPrint' ||
            currentScreen === 'ReceivedItems' ||
+           currentScreen === 'ItemsManagement' ||
            currentScreen === 'BillingConfigItemForm' ||
            currentScreen === 'ReceivedItemTemplateForm';
   };

@@ -111,6 +111,27 @@ Resources:
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
 
+  BillItemsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${ProjectName}-BillItems-${Environment}"
+      AttributeDefinitions:
+        - AttributeName: item_id
+          AttributeType: S
+        - AttributeName: bill_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: item_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      GlobalSecondaryIndexes:
+        - IndexName: BillIdIndex
+          KeySchema:
+            - AttributeName: bill_id
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
   AppUpdatesTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -373,12 +394,15 @@ Resources:
             TableName: !Ref BillingConfigItemsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref ReceivedItemTemplatesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BillItemsTable
       Environment:
         Variables:
           BILLS_TABLE_NAME: !Ref BillsTable
           CUSTOMERS_TABLE_NAME: !Ref CustomersTable
           BILLING_CONFIG_ITEMS_TABLE_NAME: !Ref BillingConfigItemsTable
           RECEIVED_ITEM_TEMPLATES_TABLE_NAME: !Ref ReceivedItemTemplatesTable
+          BILL_ITEMS_TABLE_NAME: !Ref BillItemsTable
       Events:
         GetBills:
           Type: Api
@@ -535,6 +559,18 @@ Resources:
           Properties:
             RestApiId: !Ref ApiGatewayApi
             Path: /received-item-templates/{id}
+            Method: options
+        MigrateLegacyBillItems:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/migrate-legacy-items
+            Method: post
+        MigrateLegacyBillItemsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/migrate-legacy-items
             Method: options
 
   AppUpdatesLambda:

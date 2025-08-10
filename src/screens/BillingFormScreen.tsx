@@ -28,7 +28,8 @@ import {
   BillFormData,
   BillItem,
   ReceivedItem,
-  Payment
+  Payment,
+  DeliveryStatus
 } from '../types';
 import { useFormValidation } from '../hooks/useFormValidation';
 import {
@@ -72,6 +73,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
   const [loading, setLoading] = useState(true);
   const [currentBill, setCurrentBill] = useState<any>(null);
   const [payments, setPayments] = useState<Omit<Payment, 'id' | 'createdAt'>[]>([]);
+  const [deliveryStatus, setDeliveryStatus] = useState<DeliveryStatus>('pending');
 
   // Form validation
   const {
@@ -180,6 +182,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
             setBillItems(freshBill.items || []);
             setReceivedItems(freshBill.receivedItems || []);
             setSelectedCustomer(customerData);
+            setDeliveryStatus(freshBill.deliveryStatus || 'pending');
             setCurrentBill({ ...freshBill, customer: customerData });
           } catch (error) {
             console.warn('Failed to fetch fresh bill data, using passed data:', error);
@@ -201,6 +204,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
               }
             } else {
               setSelectedCustomer(bill.customer);
+              setDeliveryStatus(bill.deliveryStatus || 'pending');
               setCurrentBill(bill);
             }
           }
@@ -356,6 +360,45 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
   const totalPaidAmount = payments.reduce((sum, payment) => sum + payment.amount, 0);
   const outstandingAmount = totalAmount - totalPaidAmount;
 
+  // Calculate overall delivery status based on individual item statuses
+  const calculateOverallDeliveryStatus = useCallback((): DeliveryStatus => {
+    if (billItems.length === 0) return 'pending';
+    
+    const itemStatuses = billItems.map(item => item.deliveryStatus || 'pending');
+    
+    // If any item is cancelled, overall status is cancelled
+    if (itemStatuses.some(status => status === 'cancelled')) {
+      return 'cancelled';
+    }
+    
+    // If all items are delivered, overall status is delivered
+    if (itemStatuses.every(status => status === 'delivered')) {
+      return 'delivered';
+    }
+    
+    // If any item is ready for delivery and none are pending/in_progress, overall is ready
+    if (itemStatuses.some(status => status === 'ready_for_delivery') && 
+        !itemStatuses.some(status => status === 'pending' || status === 'in_progress')) {
+      return 'ready_for_delivery';
+    }
+    
+    // If any item is in progress, overall status is in progress
+    if (itemStatuses.some(status => status === 'in_progress')) {
+      return 'in_progress';
+    }
+    
+    // Default to pending
+    return 'pending';
+  }, [billItems]);
+
+  // Update overall delivery status when items change
+  useEffect(() => {
+    const newOverallStatus = calculateOverallDeliveryStatus();
+    if (newOverallStatus !== deliveryStatus) {
+      setDeliveryStatus(newOverallStatus);
+    }
+  }, [billItems, calculateOverallDeliveryStatus, deliveryStatus]);
+
   // Handle bill updates from payment component
   const handleBillUpdate = useCallback((updatedBill: any) => {
     console.log('BillingFormScreen - Received bill update:', {
@@ -411,7 +454,9 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
         description: item.description || '',
         quantity: Number(item.quantity) || 1, // Keep as number for int() conversion
         unitPrice: Number(item.unitPrice) || 0, // Keep as number
-        configItemId: item.configItemId || null
+        configItemId: item.configItemId || undefined,
+        materialSource: item.materialSource || 'customer',
+        deliveryStatus: item.deliveryStatus || 'pending'
       }));
 
       const processedReceivedItems = receivedItems.map(item => ({
@@ -426,6 +471,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
         customerId: formData.customerId,
         billingDate: formData.billingDate,
         deliveryDate: formData.deliveryDate,
+        deliveryStatus: deliveryStatus,
         items: processedItems,
         receivedItems: processedReceivedItems,
         payments: mode === 'add' ? payments.filter(p => p.amount > 0) : undefined, // Only include payments for create mode
@@ -668,6 +714,47 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
             </View>
           </ModernCard>
 
+          {/* Overall Delivery Status */}
+          <ModernCard style={styles.section}>
+            <Text style={styles.sectionTitle}>Overall Delivery Status</Text>
+            
+            <View style={styles.statusContainer}>
+              <Text style={styles.fieldLabel}>Current Status (Auto-calculated)</Text>
+              <View style={styles.overallStatusDisplay}>
+                {(() => {
+                  const statusConfig = {
+                    'pending': { label: 'Pending', icon: 'schedule', color: '#FF9500' },
+                    'in_progress': { label: 'In Progress', icon: 'work', color: '#007AFF' },
+                    'ready_for_delivery': { label: 'Ready for Delivery', icon: 'check-circle', color: '#34C759' },
+                    'delivered': { label: 'Delivered', icon: 'local-shipping', color: '#30D158' },
+                    'cancelled': { label: 'Cancelled', icon: 'cancel', color: '#FF3B30' }
+                  };
+                  const currentStatus = statusConfig[deliveryStatus];
+                  
+                  return (
+                    <View style={[styles.overallStatusBadge, { borderColor: currentStatus.color }]}>
+                      <MaterialIcon 
+                        name={currentStatus.icon} 
+                        size={20} 
+                        color={currentStatus.color} 
+                      />
+                      <Text style={[styles.overallStatusText, { color: currentStatus.color }]}>
+                        {currentStatus.label}
+                      </Text>
+                    </View>
+                  );
+                })()}
+              </View>
+              
+              <View style={styles.statusInfo}>
+                <MaterialIcon name="info" size={14} color="#666" />
+                <Text style={styles.statusInfoText}>
+                  Overall status is automatically calculated based on individual item statuses below
+                </Text>
+              </View>
+            </View>
+          </ModernCard>
+
           {/* Billing Items */}
           <ModernCard style={[
             styles.section,
@@ -712,6 +799,92 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
                   multiline
                   testID={`billing-item-description-${index}`}
                 />
+
+                {/* Material Source Selection */}
+                <View style={styles.materialSourceContainer}>
+                  <Text style={styles.fieldLabel}>Material Source</Text>
+                  <View style={styles.materialSourceButtons}>
+                    <TouchableOpacity
+                      style={[
+                        styles.materialSourceButton,
+                        (item.materialSource === 'customer' || !item.materialSource) && styles.materialSourceButtonActive
+                      ]}
+                      onPress={() => handleUpdateBillingItem(index, 'materialSource', 'customer')}
+                      testID={`material-source-customer-${index}`}
+                    >
+                      <MaterialIcon 
+                        name="person" 
+                        size={16} 
+                        color={(item.materialSource === 'customer' || !item.materialSource) ? '#007AFF' : '#666'} 
+                      />
+                      <Text style={[
+                        styles.materialSourceButtonText,
+                        (item.materialSource === 'customer' || !item.materialSource) && styles.materialSourceButtonTextActive
+                      ]}>
+                        Customer Provided
+                      </Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity
+                      style={[
+                        styles.materialSourceButton,
+                        item.materialSource === 'business' && styles.materialSourceButtonActive
+                      ]}
+                      onPress={() => handleUpdateBillingItem(index, 'materialSource', 'business')}
+                      testID={`material-source-business-${index}`}
+                    >
+                      <MaterialIcon 
+                        name="business" 
+                        size={16} 
+                        color={item.materialSource === 'business' ? '#007AFF' : '#666'} 
+                      />
+                      <Text style={[
+                        styles.materialSourceButtonText,
+                        item.materialSource === 'business' && styles.materialSourceButtonTextActive
+                      ]}>
+                        Our Materials
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Item Delivery Status */}
+                <View style={styles.itemDeliveryStatusContainer}>
+                  <Text style={styles.fieldLabel}>Item Status</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={styles.itemStatusButtons}>
+                      {[
+                        { value: 'pending', label: 'Pending', icon: 'schedule', color: '#FF9500' },
+                        { value: 'in_progress', label: 'In Progress', icon: 'work', color: '#007AFF' },
+                        { value: 'ready_for_delivery', label: 'Ready', icon: 'check-circle', color: '#34C759' },
+                        { value: 'delivered', label: 'Delivered', icon: 'local-shipping', color: '#30D158' },
+                        { value: 'cancelled', label: 'Cancelled', icon: 'cancel', color: '#FF3B30' }
+                      ].map((status) => (
+                        <TouchableOpacity
+                          key={status.value}
+                          style={[
+                            styles.itemStatusButton,
+                            (item.deliveryStatus === status.value || (!item.deliveryStatus && status.value === 'pending')) && [styles.itemStatusButtonActive, { borderColor: status.color }]
+                          ]}
+                          onPress={() => handleUpdateBillingItem(index, 'deliveryStatus', status.value)}
+                          testID={`item-delivery-status-${status.value}-${index}`}
+                        >
+                          <MaterialIcon 
+                            name={status.icon} 
+                            size={14} 
+                            color={(item.deliveryStatus === status.value || (!item.deliveryStatus && status.value === 'pending')) ? status.color : '#666'} 
+                          />
+                          <Text style={[
+                            styles.itemStatusButtonText,
+                            (item.deliveryStatus === status.value || (!item.deliveryStatus && status.value === 'pending')) && { color: status.color, fontWeight: '600' }
+                          ]}>
+                            {status.label}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </ScrollView>
+                </View>
 
                 <View style={styles.itemDetails}>
                   <View style={styles.itemDetailField}>
@@ -1670,6 +1843,133 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     color: '#999',
     fontStyle: 'italic',
     flex: 1,
+  },
+  // Delivery Status styles
+  statusContainer: {
+    marginTop: 8,
+  },
+  statusButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  statusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFFFFF',
+    gap: 6,
+  },
+  statusButtonActive: {
+    backgroundColor: isDarkMode ? '#1C1C1E' : '#F0F8FF',
+    borderWidth: 2,
+  },
+  statusButtonText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  statusInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E1E1E1',
+    gap: 6,
+  },
+  statusInfoText: {
+    fontSize: 12,
+    color: '#666',
+    flex: 1,
+  },
+  // Material Source styles
+  materialSourceContainer: {
+    marginBottom: 12,
+  },
+  materialSourceButtons: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  materialSourceButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFFFFF',
+    gap: 6,
+  },
+  materialSourceButtonActive: {
+    borderColor: '#007AFF',
+    backgroundColor: isDarkMode ? '#1C1C1E' : '#F0F8FF',
+  },
+  materialSourceButtonText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+    textAlign: 'center',
+    flex: 1,
+  },
+  materialSourceButtonTextActive: {
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  // Item-level delivery status styles
+  itemDeliveryStatusContainer: {
+    marginBottom: 12,
+  },
+  itemStatusButtons: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 8,
+  },
+  itemStatusButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFFFFF',
+    gap: 4,
+  },
+  itemStatusButtonActive: {
+    backgroundColor: isDarkMode ? '#1C1C1E' : '#F0F8FF',
+    borderWidth: 2,
+  },
+  itemStatusButtonText: {
+    fontSize: 10,
+    color: '#666',
+    fontWeight: '500',
+  },
+  // Overall status display styles
+  overallStatusDisplay: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  overallStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 2,
+    backgroundColor: isDarkMode ? '#1C1C1E' : '#F8F9FA',
+    gap: 8,
+  },
+  overallStatusText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

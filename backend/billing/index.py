@@ -22,18 +22,21 @@ BILLS_TABLE_NAME = os.environ.get("BILLS_TABLE_NAME", "Bills")
 CUSTOMERS_TABLE_NAME = os.environ.get("CUSTOMERS_TABLE_NAME", "Customers")
 BILLING_CONFIG_ITEMS_TABLE_NAME = os.environ.get("BILLING_CONFIG_ITEMS_TABLE_NAME", "BillingConfigItems")
 RECEIVED_ITEM_TEMPLATES_TABLE_NAME = os.environ.get("RECEIVED_ITEM_TEMPLATES_TABLE_NAME", "ReceivedItemTemplates")
+BILL_ITEMS_TABLE_NAME = os.environ.get("BILL_ITEMS_TABLE_NAME", "BillItems")
 
 print(f"DEBUG: Using REGION: {REGION}")
 print(f"DEBUG: Using BILLS_TABLE_NAME: {BILLS_TABLE_NAME}")
 print(f"DEBUG: Using CUSTOMERS_TABLE_NAME: {CUSTOMERS_TABLE_NAME}")
 print(f"DEBUG: Using BILLING_CONFIG_ITEMS_TABLE_NAME: {BILLING_CONFIG_ITEMS_TABLE_NAME}")
 print(f"DEBUG: Using RECEIVED_ITEM_TEMPLATES_TABLE_NAME: {RECEIVED_ITEM_TEMPLATES_TABLE_NAME}")
+print(f"DEBUG: Using BILL_ITEMS_TABLE_NAME: {BILL_ITEMS_TABLE_NAME}")
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 bills_table = dynamodb.Table(BILLS_TABLE_NAME)
 customers_table = dynamodb.Table(CUSTOMERS_TABLE_NAME)
 billing_config_items_table = dynamodb.Table(BILLING_CONFIG_ITEMS_TABLE_NAME)
 received_item_templates_table = dynamodb.Table(RECEIVED_ITEM_TEMPLATES_TABLE_NAME)
+bill_items_table = dynamodb.Table(BILL_ITEMS_TABLE_NAME)
 
 def handle_error(e, function_name):
     logger.error(f"Error in {function_name}: {e}")
@@ -57,6 +60,81 @@ def handle_options(event, context):
             "Access-Control-Allow-Headers": "*",
         },
     }
+
+# Helper functions for managing bill items in separate table
+def get_bill_items(bill_id):
+    """Retrieve all items for a specific bill from the BillItems table"""
+    try:
+        response = bill_items_table.query(
+            IndexName="BillIdIndex",
+            KeyConditionExpression=Key("bill_id").eq(bill_id)
+        )
+        return response.get("Items", [])
+    except Exception as e:
+        logger.error(f"Error fetching bill items for bill {bill_id}: {e}")
+        return []
+
+def save_bill_items(bill_id, items):
+    """Save bill items to the BillItems table"""
+    try:
+        # First, delete existing items for this bill
+        existing_items = get_bill_items(bill_id)
+        for item in existing_items:
+            bill_items_table.delete_item(Key={"item_id": item["item_id"]})
+        
+        # Then save new items
+        for item in items:
+            item_record = {
+                "item_id": item["id"],
+                "bill_id": bill_id,
+                "type": item.get("type", "custom"),
+                "name": item.get("name"),
+                "description": item.get("description", ""),
+                "quantity": item.get("quantity", 1),
+                "unit_price": Decimal(str(item.get("unitPrice", 0))),
+                "total_price": Decimal(str(item.get("totalPrice", 0))),
+                "config_item_id": item.get("configItemId"),
+                "material_source": item.get("materialSource", "customer"),
+                "delivery_status": item.get("deliveryStatus", "pending"),
+                "created_at": int(datetime.now().timestamp()),
+                "updated_at": int(datetime.now().timestamp())
+            }
+            bill_items_table.put_item(Item=item_record)
+        
+        logger.info(f"Saved {len(items)} items for bill {bill_id}")
+    except Exception as e:
+        logger.error(f"Error saving bill items for bill {bill_id}: {e}")
+        raise e
+
+def delete_bill_items(bill_id):
+    """Delete all items for a specific bill from the BillItems table"""
+    try:
+        existing_items = get_bill_items(bill_id)
+        for item in existing_items:
+            bill_items_table.delete_item(Key={"item_id": item["item_id"]})
+        logger.info(f"Deleted {len(existing_items)} items for bill {bill_id}")
+    except Exception as e:
+        logger.error(f"Error deleting bill items for bill {bill_id}: {e}")
+        raise e
+
+def format_bill_items_for_response(bill_items):
+    """Convert bill items from database format to API response format"""
+    formatted_items = []
+    for item in bill_items:
+        formatted_item = {
+            "id": item["item_id"],
+            "type": item.get("type", "custom"),
+            "name": item.get("name"),
+            "description": item.get("description", ""),
+            "quantity": int(item.get("quantity", 1)),
+            "unitPrice": float(item.get("unit_price", 0)) if isinstance(item.get("unit_price"), Decimal) else item.get("unit_price", 0),
+            "totalPrice": float(item.get("total_price", 0)) if isinstance(item.get("total_price"), Decimal) else item.get("total_price", 0),
+            "configItemId": item.get("config_item_id"),
+            "materialSource": item.get("material_source", "customer"),
+            "deliveryStatus": item.get("delivery_status", "pending")
+        }
+        formatted_items.append(formatted_item)
+    return formatted_items
 
 def get_bills(event, context):
     try:
@@ -118,13 +196,21 @@ def get_bills(event, context):
             else:
                 status = "unpaid"
             
+            # Get items from separate BillItems table
+            bill_items = get_bill_items(item["bill_id"])
+            formatted_items = format_bill_items_for_response(bill_items)
+            
+            # Use items from separate table if available, otherwise fall back to legacy items
+            items_to_use = formatted_items if formatted_items else item.get("items", [])
+            
             bill = {
                 "id": item["bill_id"],
                 "customerId": item["customer_id"],
                 "billNumber": item.get("bill_number", ""),
                 "billingDate": item["billing_date"],
                 "deliveryDate": item["delivery_date"],
-                "items": item.get("items", []),
+                "deliveryStatus": item.get("delivery_status", "pending"),
+                "items": items_to_use,
                 "receivedItems": item.get("received_items", []),
                 "totalAmount": total_amount,
                 "paidAmount": paid_amount,
@@ -202,13 +288,21 @@ def get_bill_by_id(event, context):
         
         logger.info(f"DEBUG: Bill {bill_item['bill_id']} - Total: {total_amount}, Paid: {paid_amount}, Outstanding: {outstanding_amount}, Status: {status}")
 
+        # Get items from separate BillItems table
+        bill_items = get_bill_items(bill_item["bill_id"])
+        formatted_items = format_bill_items_for_response(bill_items)
+        
+        # Use items from separate table if available, otherwise fall back to legacy items
+        items_to_use = formatted_items if formatted_items else bill_item.get("items", [])
+
         bill = {
             "id": bill_item["bill_id"],
             "customerId": bill_item["customer_id"],
             "billNumber": bill_item.get("bill_number", ""),
             "billingDate": bill_item["billing_date"],
             "deliveryDate": bill_item["delivery_date"],
-            "items": bill_item.get("items", []),
+            "deliveryStatus": bill_item.get("delivery_status", "pending"),
+            "items": items_to_use,
             "receivedItems": bill_item.get("received_items", []),
             "totalAmount": total_amount,
             "paidAmount": paid_amount,
@@ -239,6 +333,7 @@ def add_bill(event, context):
         customer_id = body.get("customerId")
         billing_date = body.get("billingDate")
         delivery_date = body.get("deliveryDate")
+        delivery_status = body.get("deliveryStatus", "pending")  # Add delivery status support
         items = body.get("items", [])
         received_items = body.get("receivedItems", [])
         payments = body.get("payments", [])  # Add support for payments during creation
@@ -276,7 +371,9 @@ def add_bill(event, context):
                 "quantity": int(item.get("quantity", 1)),
                 "unitPrice": unit_price,
                 "totalPrice": item_total,
-                "configItemId": item.get("configItemId")
+                "configItemId": item.get("configItemId"),
+                "materialSource": item.get("materialSource", "customer"),
+                "deliveryStatus": item.get("deliveryStatus", "pending")
             }
             processed_items.append(processed_item)
             total_amount += item_total
@@ -339,13 +436,14 @@ def add_bill(event, context):
         else:
             status = "unpaid"
 
+        # Save bill without items (items will be stored separately)
         bill_item = {
             "bill_id": bill_id,
             "customer_id": customer_id,
             "bill_number": bill_number,
             "billing_date": billing_date,
             "delivery_date": delivery_date,
-            "items": processed_items,
+            "delivery_status": delivery_status,
             "received_items": processed_received_items,
             "total_amount": total_amount,
             "paid_amount": paid_amount,
@@ -358,6 +456,9 @@ def add_bill(event, context):
         }
 
         bills_table.put_item(Item=bill_item)
+        
+        # Save items to separate BillItems table
+        save_bill_items(bill_id, processed_items)
 
         # Transform response to match frontend expectations
         response_bill = {
@@ -366,6 +467,7 @@ def add_bill(event, context):
             "billNumber": bill_number,
             "billingDate": billing_date,
             "deliveryDate": delivery_date,
+            "deliveryStatus": delivery_status,
             "items": processed_items,
             "receivedItems": processed_received_items,
             "totalAmount": float(total_amount),
@@ -399,6 +501,7 @@ def update_bill(event, context):
         customer_id = body.get("customerId")
         billing_date = body.get("billingDate")
         delivery_date = body.get("deliveryDate")
+        delivery_status = body.get("deliveryStatus", "pending")  # Add delivery status support
         items = body.get("items", [])
         received_items = body.get("receivedItems", [])
         notes = body.get("notes", "")
@@ -430,7 +533,9 @@ def update_bill(event, context):
                 "quantity": int(item.get("quantity", 1)),
                 "unitPrice": unit_price,
                 "totalPrice": item_total,
-                "configItemId": item.get("configItemId")
+                "configItemId": item.get("configItemId"),
+                "materialSource": item.get("materialSource", "customer"),
+                "deliveryStatus": item.get("deliveryStatus", "pending")
             }
             processed_items.append(processed_item)
             total_amount += item_total
@@ -476,13 +581,14 @@ def update_bill(event, context):
         else:
             status = "unpaid"
 
-        update_expression = "SET customer_id = :customerId, billing_date = :billingDate, delivery_date = :deliveryDate, #items = :items, received_items = :receivedItems, total_amount = :totalAmount, outstanding_amount = :outstandingAmount, #s = :status, notes = :notes, updated_at = :updatedAt"
-        expression_attribute_names = {"#s": "status", "#items": "items"}
+        # Update bill without items (items will be stored separately)
+        update_expression = "SET customer_id = :customerId, billing_date = :billingDate, delivery_date = :deliveryDate, delivery_status = :deliveryStatus, received_items = :receivedItems, total_amount = :totalAmount, outstanding_amount = :outstandingAmount, #s = :status, notes = :notes, updated_at = :updatedAt"
+        expression_attribute_names = {"#s": "status"}
         expression_attribute_values = {
             ":customerId": customer_id,
             ":billingDate": billing_date,
             ":deliveryDate": delivery_date,
-            ":items": processed_items,
+            ":deliveryStatus": delivery_status,
             ":receivedItems": processed_received_items,
             ":totalAmount": Decimal(str(total_amount)),
             ":outstandingAmount": Decimal(str(outstanding_amount)),
@@ -501,6 +607,9 @@ def update_bill(event, context):
 
         updated_item = response.get("Attributes")
         
+        # Update items in separate BillItems table
+        save_bill_items(bill_id, processed_items)
+        
         # Transform response to match frontend expectations (same as add_bill)
         response_bill = {
             "id": updated_item["bill_id"],
@@ -508,7 +617,8 @@ def update_bill(event, context):
             "billNumber": updated_item.get("bill_number", ""),
             "billingDate": updated_item["billing_date"],
             "deliveryDate": updated_item["delivery_date"],
-            "items": updated_item.get("items", []),
+            "deliveryStatus": updated_item.get("delivery_status", "pending"),
+            "items": processed_items,
             "receivedItems": updated_item.get("received_items", []),
             "totalAmount": float(updated_item["total_amount"]) if isinstance(updated_item["total_amount"], Decimal) else updated_item["total_amount"],
             "paidAmount": float(updated_item.get("paid_amount", 0)) if isinstance(updated_item.get("paid_amount", 0), Decimal) else updated_item.get("paid_amount", 0),
@@ -562,6 +672,10 @@ def delete_bill(event, context):
                 },
             }
 
+        # Delete associated bill items first
+        delete_bill_items(bill_id)
+        
+        # Then delete the bill
         bills_table.delete_item(Key={"bill_id": bill_id})
 
         logger.info(f"Deleted bill with ID: {bill_id}")
@@ -1427,6 +1541,74 @@ def add_received_item_template(event, context):
     except Exception as e:
         return handle_error(e, "add_received_item_template")
 
+def migrate_legacy_bill_items(event, context):
+    """
+    Utility function to migrate existing bills from legacy structure (items stored in bills table)
+    to new structure (items stored in separate BillItems table)
+    """
+    try:
+        # Scan all bills
+        response = bills_table.scan()
+        bills = response.get("Items", [])
+        
+        migrated_count = 0
+        
+        for bill in bills:
+            bill_id = bill["bill_id"]
+            legacy_items = bill.get("items", [])
+            
+            # Check if this bill has legacy items and no items in the new table
+            existing_items = get_bill_items(bill_id)
+            
+            if legacy_items and not existing_items:
+                logger.info(f"Migrating {len(legacy_items)} items for bill {bill_id}")
+                
+                # Convert legacy items to new format and save
+                processed_items = []
+                for item in legacy_items:
+                    processed_item = {
+                        "id": item.get("id", f"item-{os.urandom(8).hex()}"),
+                        "type": item.get("type", "custom"),
+                        "name": item.get("name"),
+                        "description": item.get("description", ""),
+                        "quantity": int(item.get("quantity", 1)),
+                        "unitPrice": float(item.get("unitPrice", 0)) if isinstance(item.get("unitPrice"), Decimal) else item.get("unitPrice", 0),
+                        "totalPrice": float(item.get("totalPrice", 0)) if isinstance(item.get("totalPrice"), Decimal) else item.get("totalPrice", 0),
+                        "configItemId": item.get("configItemId"),
+                        "materialSource": item.get("materialSource", "customer"),
+                        "deliveryStatus": item.get("deliveryStatus", "pending")
+                    }
+                    processed_items.append(processed_item)
+                
+                # Save items to new table
+                save_bill_items(bill_id, processed_items)
+                
+                # Optionally remove items from the bills table to clean up
+                bills_table.update_item(
+                    Key={"bill_id": bill_id},
+                    UpdateExpression="REMOVE #items",
+                    ExpressionAttributeNames={"#items": "items"}
+                )
+                
+                migrated_count += 1
+        
+        logger.info(f"Migration completed. Migrated {migrated_count} bills")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "message": f"Migration completed successfully. Migrated {migrated_count} bills.",
+                "migratedCount": migrated_count
+            }),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "migrate_legacy_bill_items")
+
 def lambda_handler(event, context):
     logger.info(f"Received event: {json.dumps(event)}")
     http_method = event.get("httpMethod")
@@ -1438,6 +1620,11 @@ def lambda_handler(event, context):
             return get_bills(event, context)
         elif http_method == "POST":
             return add_bill(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path == "/bills/migrate-legacy-items":
+        if http_method == "POST":
+            return migrate_legacy_bill_items(event, context)
         elif http_method == "OPTIONS":
             return handle_options(event, context)
     elif path.startswith("/bills/") and "/payments" in path:

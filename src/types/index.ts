@@ -99,6 +99,7 @@ export interface Bill {
   paidAmount: number;
   outstandingAmount: number;
   status: BillStatus;
+  deliveryStatus: DeliveryStatus;
   payments: Payment[];
   notes?: string;
   createdAt: string;
@@ -114,6 +115,9 @@ export interface BillItem {
   unitPrice: number;
   totalPrice: number;
   configItemId?: string; // Reference to billing config item
+  materialSource?: 'customer' | 'business'; // Who provides the materials
+  deliveryStatus?: DeliveryStatus; // Individual item delivery status
+  statusChangeDate?: string; // Date when status was last changed
 }
 
 export interface ReceivedItem {
@@ -136,6 +140,7 @@ export interface Payment {
 }
 
 export type BillStatus = 'draft' | 'unpaid' | 'partially_paid' | 'fully_paid' | 'cancelled';
+export type DeliveryStatus = 'pending' | 'in_progress' | 'ready_for_delivery' | 'delivered' | 'cancelled';
 
 export interface BillingConfigItem {
   id: string;
@@ -163,6 +168,7 @@ export interface BillFormData {
   customerId: string;
   billingDate: string;
   deliveryDate: string;
+  deliveryStatus?: DeliveryStatus;
   items: Omit<BillItem, 'id' | 'totalPrice'>[];
   receivedItems: Omit<ReceivedItem, 'id'>[];
   notes?: string;
@@ -173,6 +179,7 @@ export interface CreateBillRequest {
   customerId: string;
   billingDate: string;
   deliveryDate: string;
+  deliveryStatus?: DeliveryStatus;
   items: Omit<BillItem, 'id' | 'totalPrice'>[];
   receivedItems: Omit<ReceivedItem, 'id'>[];
   payments?: Omit<Payment, 'id' | 'createdAt'>[];
@@ -481,8 +488,9 @@ export type MeasurementConfigStackParamList = {
 export type BillingStackParamList = {
   BillingList: undefined;
   BillingForm: { bill?: Bill; mode: 'add' | 'edit'; customerId?: string };
-  BillDetail: { bill: Bill };
+  BillDetail: { billId: string; bill?: Bill };
   BillPrint: { billId: string };
+  ItemsManagement: { billId: string; bill?: Bill };
 };
 
 export type BillingConfigStackParamList = {

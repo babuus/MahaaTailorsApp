@@ -18,7 +18,7 @@ import {
   FloatingActionButton,
   SyncStatusIndicator
 } from '../components';
-import { Bill, BillStatus } from '../types';
+import { Bill, BillStatus, DeliveryStatus } from '../types';
 import OfflineApiService from '../services/offlineApiService';
 
 interface BillingScreenProps {
@@ -72,7 +72,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
             // Try to get customer info from cache or return placeholder
             try {
               // Attempt to get cached customer data
-              const cachedCustomer = await OfflineApiService.getCustomerById(bill.customerId, { useCache: true });
+              const cachedCustomer = await OfflineApiService.getCustomerById(bill.customerId);
               return { ...bill, customer: cachedCustomer };
             } catch (cacheError) {
               console.warn(`No cached customer data for ${bill.customerId}:`, cacheError);
@@ -215,9 +215,31 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
     }
   };
 
+  const getDeliveryStatusColor = (status: DeliveryStatus): string => {
+    switch (status) {
+      case 'pending': return '#FF9500';
+      case 'in_progress': return '#007AFF';
+      case 'ready_for_delivery': return '#34C759';
+      case 'delivered': return '#30D158';
+      case 'cancelled': return '#FF3B30';
+      default: return '#666';
+    }
+  };
+
+  const getDeliveryStatusLabel = (status: DeliveryStatus): string => {
+    switch (status) {
+      case 'pending': return 'Pending';
+      case 'in_progress': return 'In Progress';
+      case 'ready_for_delivery': return 'Ready';
+      case 'delivered': return 'Delivered';
+      case 'cancelled': return 'Cancelled';
+      default: return status;
+    }
+  };
+
   const handleBillPress = (bill: Bill) => {
-    navigation.navigate('BillingForm', {
-      mode: 'edit',
+    navigation.navigate('BillDetail', {
+      billId: bill.id,
       bill,
     });
   };
@@ -229,9 +251,9 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
   };
 
   const handleReceivedItems = (bill: Bill) => {
-    navigation.navigate('ReceivedItems', {
+    navigation.navigate('ItemsManagement', {
       billId: bill.id,
-      mode: 'edit',
+      bill,
     });
   };
 
@@ -335,16 +357,31 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
         <View style={styles.billHeader}>
           <View style={styles.billTitleContainer}>
             <Text style={styles.billNumber}>{bill.billNumber}</Text>
-            <View style={[
-              styles.statusBadge,
-              { backgroundColor: getStatusColor(bill.status) + '20' }
-            ]}>
-              <Text style={[
-                styles.statusText,
-                { color: getStatusColor(bill.status) }
+            <View style={styles.statusBadges}>
+              <View style={[
+                styles.statusBadge,
+                { backgroundColor: getStatusColor(bill.status) + '20' }
               ]}>
-                {getStatusLabel(bill.status)}
-              </Text>
+                <Text style={[
+                  styles.statusText,
+                  { color: getStatusColor(bill.status) }
+                ]}>
+                  {getStatusLabel(bill.status)}
+                </Text>
+              </View>
+              {bill.deliveryStatus && (
+                <View style={[
+                  styles.deliveryStatusBadge,
+                  { backgroundColor: getDeliveryStatusColor(bill.deliveryStatus) + '20' }
+                ]}>
+                  <Text style={[
+                    styles.deliveryStatusText,
+                    { color: getDeliveryStatusColor(bill.deliveryStatus) }
+                  ]}>
+                    {getDeliveryStatusLabel(bill.deliveryStatus)}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
           <Text style={styles.billDate}>
@@ -379,11 +416,13 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
             <Text style={styles.amountLabel}>Outstanding:</Text>
             <Text style={[
               styles.outstandingAmount,
-              { color: (() => {
-                const calculatedPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
-                const calculatedOutstandingAmount = bill.totalAmount - calculatedPaidAmount;
-                return calculatedOutstandingAmount > 0 ? '#FF3B30' : '#34C759';
-              })() }
+              {
+                color: (() => {
+                  const calculatedPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
+                  const calculatedOutstandingAmount = bill.totalAmount - calculatedPaidAmount;
+                  return calculatedOutstandingAmount > 0 ? '#FF3B30' : '#34C759';
+                })()
+              }
             ]}>
               ₹{(() => {
                 const calculatedPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
@@ -425,8 +464,8 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
           style={styles.actionButton}
           onPress={() => handleBillPress(bill)}
         >
-          <MaterialIcon name="edit" size={18} color="#007AFF" />
-          <Text style={styles.actionButtonText}>Edit</Text>
+          <MaterialIcon name="visibility" size={18} color="#007AFF" />
+          <Text style={styles.actionButtonText}>View</Text>
         </TouchableOpacity>
       </View>
     </ModernCard>
@@ -759,6 +798,11 @@ const styles = StyleSheet.create({
     color: '#000',
     marginBottom: 4,
   },
+  statusBadges: {
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
   statusBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 8,
@@ -767,6 +811,17 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  deliveryStatusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  deliveryStatusText: {
+    fontSize: 9,
     fontWeight: '600',
     textTransform: 'uppercase',
   },
