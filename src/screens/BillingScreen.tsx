@@ -7,7 +7,9 @@ import {
   ScrollView,
   Alert,
   RefreshControl,
+  Modal,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcon from '../components/MaterialIcon';
 import {
@@ -39,10 +41,33 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<BillStatus | 'all'>('all');
   const [isOverviewExpanded, setIsOverviewExpanded] = useState(true);
-  const [dateFilter, setDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year'>('all');
-  const [isDateFilterVisible, setIsDateFilterVisible] = useState(false);
+  const [billingDateFilter, setBillingDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year' | 'custom'>('all');
+  const [deliveryDateFilter, setDeliveryDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year' | 'custom'>('all');
+  const [customBillingStartDate, setCustomBillingStartDate] = useState<Date | null>(null);
+  const [customBillingEndDate, setCustomBillingEndDate] = useState<Date | null>(null);
+  const [customDeliveryStartDate, setCustomDeliveryStartDate] = useState<Date | null>(null);
+  const [customDeliveryEndDate, setCustomDeliveryEndDate] = useState<Date | null>(null);
+  const [showFilterModal, setShowFilterModal] = useState(false);
+  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState<DeliveryStatus | 'all'>('all');
+  
+  // Temporary filter states for the modal (not applied until "Apply Filters" is clicked)
+  const [tempStatusFilter, setTempStatusFilter] = useState<BillStatus | 'all'>('all');
+  const [tempBillingDateFilter, setTempBillingDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year' | 'custom'>('all');
+  const [tempDeliveryDateFilter, setTempDeliveryDateFilter] = useState<'all' | 'today' | 'week' | 'month' | 'year' | 'custom'>('all');
+  const [tempCustomBillingStartDate, setTempCustomBillingStartDate] = useState<Date | null>(null);
+  const [tempCustomBillingEndDate, setTempCustomBillingEndDate] = useState<Date | null>(null);
+  const [tempCustomDeliveryStartDate, setTempCustomDeliveryStartDate] = useState<Date | null>(null);
+  const [tempCustomDeliveryEndDate, setTempCustomDeliveryEndDate] = useState<Date | null>(null);
+  const [tempDeliveryStatusFilter, setTempDeliveryStatusFilter] = useState<DeliveryStatus | 'all'>('all');
+  
+  // Date picker visibility states
+  const [showBillingStartDatePicker, setShowBillingStartDatePicker] = useState(false);
+  const [showBillingEndDatePicker, setShowBillingEndDatePicker] = useState(false);
+  const [showDeliveryStartDatePicker, setShowDeliveryStartDatePicker] = useState(false);
+  const [showDeliveryEndDatePicker, setShowDeliveryEndDatePicker] = useState(false);
 
   const filterDate = route?.params?.filterDate;
 
@@ -53,9 +78,141 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
         limit: 50,
       };
 
-      if (filterDate) {
-        params.startDate = filterDate;
-        params.endDate = filterDate;
+      // Add search text filter
+      if (debouncedSearchQuery.trim()) {
+        params.searchText = debouncedSearchQuery.trim();
+      }
+
+      // Add status filter
+      if (statusFilter !== 'all') {
+        params.status = statusFilter;
+      }
+
+      // Add delivery status filter
+      if (deliveryStatusFilter !== 'all') {
+        params.deliveryStatus = deliveryStatusFilter;
+      }
+
+      // Add billing date filters
+      if (billingDateFilter !== 'all') {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        switch (billingDateFilter) {
+          case 'today':
+            // Use local date string to avoid timezone issues
+            const todayStr = today.getFullYear() + '-' + 
+              String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(today.getDate()).padStart(2, '0');
+            params.startDate = todayStr;
+            params.endDate = todayStr;
+            break;
+          case 'week':
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            const weekAgoStr = weekAgo.getFullYear() + '-' + 
+              String(weekAgo.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(weekAgo.getDate()).padStart(2, '0');
+            const todayWeekStr = today.getFullYear() + '-' + 
+              String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(today.getDate()).padStart(2, '0');
+            params.startDate = weekAgoStr;
+            params.endDate = todayWeekStr;
+            break;
+          case 'month':
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            const monthStartStr = monthStart.getFullYear() + '-' + 
+              String(monthStart.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(monthStart.getDate()).padStart(2, '0');
+            const monthEndStr = monthEnd.getFullYear() + '-' + 
+              String(monthEnd.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(monthEnd.getDate()).padStart(2, '0');
+            params.startDate = monthStartStr;
+            params.endDate = monthEndStr;
+            break;
+          case 'year':
+            const yearStart = new Date(now.getFullYear(), 0, 1);
+            const yearEnd = new Date(now.getFullYear(), 11, 31);
+            const yearStartStr = yearStart.getFullYear() + '-' + 
+              String(yearStart.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(yearStart.getDate()).padStart(2, '0');
+            const yearEndStr = yearEnd.getFullYear() + '-' + 
+              String(yearEnd.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(yearEnd.getDate()).padStart(2, '0');
+            params.startDate = yearStartStr;
+            params.endDate = yearEndStr;
+            break;
+          case 'custom':
+            if (customBillingStartDate) {
+              params.startDate = customBillingStartDate.toISOString().split('T')[0];
+            }
+            if (customBillingEndDate) {
+              params.endDate = customBillingEndDate.toISOString().split('T')[0];
+            }
+            break;
+        }
+      }
+
+      // Add delivery date filters (we'll need to update backend to support this)
+      if (deliveryDateFilter !== 'all') {
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        switch (deliveryDateFilter) {
+          case 'today':
+            // Use local date string to avoid timezone issues
+            const todayDeliveryStr = today.getFullYear() + '-' + 
+              String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(today.getDate()).padStart(2, '0');
+            params.deliveryStartDate = todayDeliveryStr;
+            params.deliveryEndDate = todayDeliveryStr;
+            break;
+          case 'week':
+            const weekAgo = new Date(today);
+            weekAgo.setDate(today.getDate() - 7);
+            const weekAgoDeliveryStr = weekAgo.getFullYear() + '-' + 
+              String(weekAgo.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(weekAgo.getDate()).padStart(2, '0');
+            const todayWeekDeliveryStr = today.getFullYear() + '-' + 
+              String(today.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(today.getDate()).padStart(2, '0');
+            params.deliveryStartDate = weekAgoDeliveryStr;
+            params.deliveryEndDate = todayWeekDeliveryStr;
+            break;
+          case 'month':
+            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+            const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+            const monthStartDeliveryStr = monthStart.getFullYear() + '-' + 
+              String(monthStart.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(monthStart.getDate()).padStart(2, '0');
+            const monthEndDeliveryStr = monthEnd.getFullYear() + '-' + 
+              String(monthEnd.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(monthEnd.getDate()).padStart(2, '0');
+            params.deliveryStartDate = monthStartDeliveryStr;
+            params.deliveryEndDate = monthEndDeliveryStr;
+            break;
+          case 'year':
+            const yearStart = new Date(now.getFullYear(), 0, 1);
+            const yearEnd = new Date(now.getFullYear(), 11, 31);
+            const yearStartDeliveryStr = yearStart.getFullYear() + '-' + 
+              String(yearStart.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(yearStart.getDate()).padStart(2, '0');
+            const yearEndDeliveryStr = yearEnd.getFullYear() + '-' + 
+              String(yearEnd.getMonth() + 1).padStart(2, '0') + '-' + 
+              String(yearEnd.getDate()).padStart(2, '0');
+            params.deliveryStartDate = yearStartDeliveryStr;
+            params.deliveryEndDate = yearEndDeliveryStr;
+            break;
+          case 'custom':
+            if (customDeliveryStartDate) {
+              params.deliveryStartDate = customDeliveryStartDate.toISOString().split('T')[0];
+            }
+            if (customDeliveryEndDate) {
+              params.deliveryEndDate = customDeliveryEndDate.toISOString().split('T')[0];
+            }
+            break;
+        }
       }
 
       const billsResponse = await OfflineApiService.getBills(params);
@@ -108,7 +265,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [filterDate]);
+  }, [filterDate, debouncedSearchQuery, statusFilter, deliveryStatusFilter, billingDateFilter, deliveryDateFilter, customBillingStartDate, customBillingEndDate, customDeliveryStartDate, customDeliveryEndDate]);
 
   const refreshBills = useCallback(async () => {
     setIsRefreshing(true);
@@ -142,56 +299,22 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
     loadBills();
   }, [loadBills]);
 
+  // Debounce search query to avoid too many API calls
   useEffect(() => {
-    filterBills();
-  }, [bills, searchQuery, statusFilter, dateFilter]);
+    const timeoutId = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 500);
 
-  const filterBills = () => {
-    let filtered = bills;
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
 
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(bill =>
-        bill.billNumber.toLowerCase().includes(query) ||
-        (bill.customer?.personalDetails?.name?.toLowerCase().includes(query)) ||
-        (bill.customer?.personalDetails?.phone?.includes(query))
-      );
-    }
+  // Update loadBills dependency to use debounced search query
+  useEffect(() => {
+    if (debouncedSearchQuery !== searchQuery) return; // Wait for debounce
+    loadBills();
+  }, [debouncedSearchQuery, statusFilter, deliveryStatusFilter, billingDateFilter, deliveryDateFilter, filterDate]);
 
-    // Filter by status
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(bill => bill.status === statusFilter);
-    }
 
-    // Filter by date
-    if (dateFilter !== 'all') {
-      const now = new Date();
-      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-      filtered = filtered.filter(bill => {
-        const billDate = new Date(bill.billingDate);
-        const billDateOnly = new Date(billDate.getFullYear(), billDate.getMonth(), billDate.getDate());
-
-        switch (dateFilter) {
-          case 'today':
-            return billDateOnly.getTime() === today.getTime();
-          case 'week':
-            const weekAgo = new Date(today);
-            weekAgo.setDate(today.getDate() - 7);
-            return billDateOnly >= weekAgo && billDateOnly <= today;
-          case 'month':
-            return billDate.getMonth() === now.getMonth() && billDate.getFullYear() === now.getFullYear();
-          case 'year':
-            return billDate.getFullYear() === now.getFullYear();
-          default:
-            return true;
-        }
-      });
-    }
-
-    setFilteredBills(filtered);
-  };
 
   const getStatusColor = (status: BillStatus): string => {
     switch (status) {
@@ -257,96 +380,9 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
     });
   };
 
-  const renderStatusFilter = () => {
-    const statuses: Array<{ key: BillStatus | 'all'; label: string }> = [
-      { key: 'all', label: 'All' },
-      { key: 'unpaid', label: 'Unpaid' },
-      { key: 'partially_paid', label: 'Partial' },
-      { key: 'fully_paid', label: 'Paid' },
-      { key: 'draft', label: 'Draft' },
-    ];
 
-    return (
-      <View style={styles.statusFilterWrapper}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.statusFilterContainer}
-        >
-          <View style={styles.statusFilters}>
-            {statuses.map((status) => (
-              <TouchableOpacity
-                key={status.key}
-                style={[
-                  styles.statusFilterButton,
-                  statusFilter === status.key && styles.statusFilterButtonActive,
-                ]}
-                onPress={() => setStatusFilter(status.key)}
-              >
-                <Text style={[
-                  styles.statusFilterText,
-                  statusFilter === status.key && styles.statusFilterTextActive,
-                ]}>
-                  {status.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-        <TouchableOpacity
-          style={[
-            styles.filterIconButton,
-            isDateFilterVisible && styles.filterIconButtonActive
-          ]}
-          onPress={() => setIsDateFilterVisible(!isDateFilterVisible)}
-        >
-          <MaterialIcon
-            name="down"
-            size="md"
-            color={isDateFilterVisible ? "#FFF" : "#666"}
-          />
-        </TouchableOpacity>
-      </View>
-    );
-  };
 
-  const renderDateFilter = () => {
-    const dateFilters: Array<{ key: 'all' | 'today' | 'week' | 'month' | 'year'; label: string }> = [
-      { key: 'all', label: 'All Time' },
-      { key: 'today', label: 'Today' },
-      { key: 'week', label: 'This Week' },
-      { key: 'month', label: 'This Month' },
-      { key: 'year', label: 'This Year' },
-    ];
 
-    return (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.dateFilterContainer}
-      >
-        <View style={styles.dateFilters}>
-          {dateFilters.map((filter) => (
-            <TouchableOpacity
-              key={filter.key}
-              style={[
-                styles.dateFilterButton,
-                dateFilter === filter.key && styles.dateFilterButtonActive,
-              ]}
-              onPress={() => setDateFilter(filter.key)}
-            >
-              <Text style={[
-                styles.dateFilterText,
-                dateFilter === filter.key && styles.dateFilterTextActive,
-              ]}>
-                {filter.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </ScrollView>
-    );
-  };
 
   const renderBillCard = (bill: Bill) => (
     <ModernCard key={bill.id} style={styles.billCard}>
@@ -576,10 +612,6 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
           style={styles.searchBar}
         />
 
-        {renderStatusFilter()}
-
-        {isDateFilterVisible && renderDateFilter()}
-
         {bills.length > 0 && renderStats()}
 
         <ScrollView
@@ -590,6 +622,12 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
               onRefresh={refreshBills}
             />
           }
+          onScroll={() => {
+            if (showFilterModal) {
+              setShowFilterModal(false);
+            }
+          }}
+          scrollEventThrottle={16}
         >
           {filteredBills.length === 0 ? (
             renderEmptyState()
@@ -599,10 +637,361 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
         </ScrollView>
       </View>
 
+      {/* Floating Filter Button */}
+      <TouchableOpacity
+        style={[styles.filterFab, { backgroundColor: '#007AFF' }]}
+        onPress={() => {
+          // Initialize temporary filters with current filter values
+          setTempStatusFilter(statusFilter);
+          setTempBillingDateFilter(billingDateFilter);
+          setTempDeliveryDateFilter(deliveryDateFilter);
+          setTempCustomBillingStartDate(customBillingStartDate);
+          setTempCustomBillingEndDate(customBillingEndDate);
+          setTempCustomDeliveryStartDate(customDeliveryStartDate);
+          setTempCustomDeliveryEndDate(customDeliveryEndDate);
+          setTempDeliveryStatusFilter(deliveryStatusFilter);
+          setShowFilterModal(true);
+        }}
+        activeOpacity={0.8}
+      >
+        <MaterialIcon name="filter" size={24} color="#FFF" />
+      </TouchableOpacity>
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilterModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowFilterModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, { backgroundColor: '#FFF' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                Filters & Sorting
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowFilterModal(false)}
+                style={styles.closeButton}
+              >
+                <MaterialIcon name="close" size={24} color="#000" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.modalContent}
+              contentContainerStyle={styles.modalContentContainer}
+              showsVerticalScrollIndicator={true}
+              bounces={true}
+            >
+              {/* Status Filter Section */}
+              <View style={styles.filterSection}>
+                <Text style={styles.sectionTitle}>
+                  Filter by Status
+                </Text>
+                <View style={styles.optionsContainer}>
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'unpaid', label: 'Unpaid' },
+                    { key: 'partially_paid', label: 'Partially Paid' },
+                    { key: 'fully_paid', label: 'Fully Paid' },
+                    { key: 'draft', label: 'Draft' },
+                    { key: 'cancelled', label: 'Cancelled' },
+                  ].map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.optionButton,
+                        {
+                          backgroundColor: tempStatusFilter === option.key
+                            ? '#007AFF'
+                            : '#F8F9FA',
+                        },
+                      ]}
+                      onPress={() => setTempStatusFilter(option.key as BillStatus | 'all')}
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          {
+                            color: tempStatusFilter === option.key
+                              ? '#FFF'
+                              : '#000',
+                          },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Billing Date Filter Section */}
+              <View style={styles.filterSection}>
+                <Text style={styles.sectionTitle}>
+                  Filter by Billing Date
+                </Text>
+                <View style={styles.optionsContainer}>
+                  {[
+                    { key: 'all', label: 'All Time' },
+                    { key: 'today', label: 'Today' },
+                    { key: 'week', label: 'This Week' },
+                    { key: 'month', label: 'This Month' },
+                    { key: 'year', label: 'This Year' },
+                    { key: 'custom', label: 'Custom Range' },
+                  ].map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.optionButton,
+                        {
+                          backgroundColor: tempBillingDateFilter === option.key
+                            ? '#34C759'
+                            : '#F8F9FA',
+                        },
+                      ]}
+                      onPress={() => setTempBillingDateFilter(option.key as 'all' | 'today' | 'week' | 'month' | 'year' | 'custom')}
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          {
+                            color: tempBillingDateFilter === option.key
+                              ? '#FFF'
+                              : '#000',
+                          },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                
+                {/* Custom Billing Date Range */}
+                {tempBillingDateFilter === 'custom' && (
+                  <View style={styles.customDateContainer}>
+                    <View style={styles.datePickerRow}>
+                      <Text style={styles.dateLabel}>From:</Text>
+                      <TouchableOpacity
+                        style={styles.datePickerButton}
+                        onPress={() => setShowBillingStartDatePicker(true)}
+                      >
+                        <Text style={styles.datePickerText}>
+                          {tempCustomBillingStartDate ? tempCustomBillingStartDate.toLocaleDateString() : 'Select Date'}
+                        </Text>
+                        <MaterialIcon name="calendar-today" size={16} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.datePickerRow}>
+                      <Text style={styles.dateLabel}>To:</Text>
+                      <TouchableOpacity
+                        style={styles.datePickerButton}
+                        onPress={() => setShowBillingEndDatePicker(true)}
+                      >
+                        <Text style={styles.datePickerText}>
+                          {tempCustomBillingEndDate ? tempCustomBillingEndDate.toLocaleDateString() : 'Select Date'}
+                        </Text>
+                        <MaterialIcon name="calendar-today" size={16} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              {/* Delivery Date Filter Section */}
+              <View style={styles.filterSection}>
+                <Text style={styles.sectionTitle}>
+                  Filter by Delivery Date
+                </Text>
+                <View style={styles.optionsContainer}>
+                  {[
+                    { key: 'all', label: 'All Time' },
+                    { key: 'today', label: 'Today' },
+                    { key: 'week', label: 'This Week' },
+                    { key: 'month', label: 'This Month' },
+                    { key: 'year', label: 'This Year' },
+                    { key: 'custom', label: 'Custom Range' },
+                  ].map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.optionButton,
+                        {
+                          backgroundColor: tempDeliveryDateFilter === option.key
+                            ? '#007AFF'
+                            : '#F8F9FA',
+                        },
+                      ]}
+                      onPress={() => setTempDeliveryDateFilter(option.key as 'all' | 'today' | 'week' | 'month' | 'year' | 'custom')}
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          {
+                            color: tempDeliveryDateFilter === option.key
+                              ? '#FFF'
+                              : '#000',
+                          },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Delivery Status Filter Section */}
+              <View style={styles.filterSection}>
+                <Text style={styles.sectionTitle}>
+                  Filter by Delivery Status
+                </Text>
+                <View style={styles.optionsContainer}>
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'pending', label: 'Pending' },
+                    { key: 'in_progress', label: 'In Progress' },
+                    { key: 'ready_for_delivery', label: 'Ready for Delivery' },
+                    { key: 'delivered', label: 'Delivered' },
+                    { key: 'cancelled', label: 'Cancelled' },
+                  ].map((option) => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.optionButton,
+                        {
+                          backgroundColor: tempDeliveryStatusFilter === option.key
+                            ? '#FF9500'
+                            : '#F8F9FA',
+                        },
+                      ]}
+                      onPress={() => setTempDeliveryStatusFilter(option.key as DeliveryStatus | 'all')}
+                    >
+                      <Text
+                        style={[
+                          styles.optionText,
+                          {
+                            color: tempDeliveryStatusFilter === option.key
+                              ? '#FFF'
+                              : '#000',
+                          },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={[styles.resetButton, { backgroundColor: '#F8F9FA' }]}
+                onPress={() => {
+                  setTempStatusFilter('all');
+                  setTempBillingDateFilter('all');
+                  setTempDeliveryDateFilter('all');
+                  setTempCustomBillingStartDate(null);
+                  setTempCustomBillingEndDate(null);
+                  setTempCustomDeliveryStartDate(null);
+                  setTempCustomDeliveryEndDate(null);
+                  setTempDeliveryStatusFilter('all');
+                }}
+              >
+                <Text style={[styles.resetButtonText, { color: '#000' }]}>
+                  Reset All
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.applyButton, { backgroundColor: '#007AFF' }]}
+                onPress={() => {
+                  // Apply the temporary filters to the actual filter states
+                  setStatusFilter(tempStatusFilter);
+                  setBillingDateFilter(tempBillingDateFilter);
+                  setDeliveryDateFilter(tempDeliveryDateFilter);
+                  setCustomBillingStartDate(tempCustomBillingStartDate);
+                  setCustomBillingEndDate(tempCustomBillingEndDate);
+                  setCustomDeliveryStartDate(tempCustomDeliveryStartDate);
+                  setCustomDeliveryEndDate(tempCustomDeliveryEndDate);
+                  setDeliveryStatusFilter(tempDeliveryStatusFilter);
+                  setShowFilterModal(false);
+                }}
+              >
+                <Text style={styles.applyButtonText}>
+                  Apply Filters
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Date Pickers */}
+      {showBillingStartDatePicker && (
+        <DateTimePicker
+          value={tempCustomBillingStartDate || new Date()}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowBillingStartDatePicker(false);
+            if (selectedDate) {
+              setTempCustomBillingStartDate(selectedDate);
+            }
+          }}
+        />
+      )}
+
+      {showBillingEndDatePicker && (
+        <DateTimePicker
+          value={tempCustomBillingEndDate || new Date()}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowBillingEndDatePicker(false);
+            if (selectedDate) {
+              setTempCustomBillingEndDate(selectedDate);
+            }
+          }}
+        />
+      )}
+
+      {showDeliveryStartDatePicker && (
+        <DateTimePicker
+          value={tempCustomDeliveryStartDate || new Date()}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowDeliveryStartDatePicker(false);
+            if (selectedDate) {
+              setTempCustomDeliveryStartDate(selectedDate);
+            }
+          }}
+        />
+      )}
+
+      {showDeliveryEndDatePicker && (
+        <DateTimePicker
+          value={tempCustomDeliveryEndDate || new Date()}
+          mode="date"
+          display="default"
+          onChange={(event, selectedDate) => {
+            setShowDeliveryEndDatePicker(false);
+            if (selectedDate) {
+              setTempCustomDeliveryEndDate(selectedDate);
+            }
+          }}
+        />
+      )}
+
       <FloatingActionButton
         onPress={() => navigation.navigate('BillingForm', { mode: 'add' })}
         icon="add"
         testID="add-bill-fab"
+        style={styles.addBillFab}
       />
     </SafeAreaView>
   );
@@ -924,5 +1313,171 @@ const styles = StyleSheet.create({
   },
   emptyStateButton: {
     minWidth: 160,
+  },
+  // Floating Filter Button Styles
+  filterFab: {
+    position: 'absolute',
+    bottom: 140, // Increased space between the two FABs
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    height: '80%',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E1E1E1',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#000',
+  },
+  closeButton: {
+    padding: 4,
+    borderRadius: 20,
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: 24,
+  },
+  modalContentContainer: {
+    paddingBottom: 24,
+    flexGrow: 1,
+  },
+  filterSection: {
+    marginVertical: 16,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+    marginBottom: 12,
+  },
+  optionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  optionButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  optionText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E1E1E1',
+    gap: 16,
+  },
+  resetButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+  },
+  resetButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  applyButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+  },
+  applyButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  addBillFab: {
+    bottom: 40, // Increased space from bottom
+  },
+  // Custom Date Range Styles
+  customDateContainer: {
+    marginTop: 12,
+    padding: 16,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+  },
+  datePickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  dateLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#000',
+    width: 50,
+  },
+  datePickerButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFF',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    marginLeft: 12,
+  },
+  datePickerText: {
+    fontSize: 14,
+    color: '#000',
   },
 });

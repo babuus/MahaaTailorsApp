@@ -962,6 +962,65 @@ class ApiService {
     await cacheManager.remove(`received_item_template_${id}`);
   }
 
+  // Bill Items API methods
+  async getBillItems(params: {
+    billId?: string;
+    type?: string;
+    deliveryStatus?: string;
+    limit?: number;
+  } = {}): Promise<{ items: any[]; hasMore: boolean }> {
+    const queryString = new URLSearchParams();
+    
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== null && value !== undefined && value !== '') {
+        queryString.append(key, String(value));
+      }
+    });
+
+    const cacheKey = `bill_items_${queryString.toString()}`;
+    const url = `/bill-items${queryString.toString() ? `?${queryString.toString()}` : ''}`;
+    
+    const response = await this.makeRequest(
+      () => apiClient.get<{ items: any[]; hasMore: boolean }>(url),
+      cacheKey,
+      true
+    );
+
+    return response;
+  }
+
+  async getBillItemById(id: string): Promise<any> {
+    const cacheKey = `bill_item_${id}`;
+    
+    return this.makeRequest(
+      () => apiClient.get<any>(`/bill-items/${id}`),
+      cacheKey,
+      true
+    );
+  }
+
+  async updateBillItem(id: string, data: any): Promise<any> {
+    const result = await this.makeRequest(
+      () => apiClient.put<any>(`/bill-items/${id}`, data)
+    );
+
+    // Invalidate related caches
+    await cacheManager.remove('bill_items_');
+    await cacheManager.remove(`bill_item_${id}`);
+    
+    return result;
+  }
+
+  async deleteBillItem(id: string): Promise<void> {
+    await this.makeRequest(
+      () => apiClient.delete(`/bill-items/${id}`)
+    );
+
+    // Invalidate related caches
+    await cacheManager.remove('bill_items_');
+    await cacheManager.remove(`bill_item_${id}`);
+  }
+
   // Utility methods
   async clearCache(): Promise<void> {
     await cacheManager.clear();
@@ -1002,6 +1061,10 @@ export const getBillById = apiService.getBillById.bind(apiService);
 export const createBill = apiService.createBill.bind(apiService);
 export const updateBill = apiService.updateBill.bind(apiService);
 export const deleteBill = apiService.deleteBill.bind(apiService);
+export const getBillItems = apiService.getBillItems.bind(apiService);
+export const getBillItemById = apiService.getBillItemById.bind(apiService);
+export const updateBillItem = apiService.updateBillItem.bind(apiService);
+export const deleteBillItem = apiService.deleteBillItem.bind(apiService);
 export const addPayment = apiService.addPayment.bind(apiService);
 export const updatePayment = apiService.updatePayment.bind(apiService);
 export const deletePayment = apiService.deletePayment.bind(apiService);

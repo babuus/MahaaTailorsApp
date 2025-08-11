@@ -248,8 +248,11 @@ export interface UpdateReceivedItemTemplateRequest extends CreateReceivedItemTem
 export interface BillQueryParams {
   customerId?: string;
   status?: BillStatus;
+  deliveryStatus?: DeliveryStatus;
   startDate?: string;
   endDate?: string;
+  deliveryStartDate?: string;
+  deliveryEndDate?: string;
   searchText?: string;
   limit?: number;
   startAfter?: string;
@@ -469,6 +472,7 @@ export type RootDrawerParamList = {
   CustomerManagement: undefined;
   MeasurementConfig: undefined;
   Billing: undefined;
+  BillingItems: undefined;
   BillingConfig: undefined;
   Calendar: undefined;
   Settings: undefined;

@@ -35,6 +35,7 @@ import BillDetailScreen from '../screens/BillDetailScreen';
 import { BillPrintScreen } from '../screens/BillPrintScreen';
 import { ReceivedItemsScreen } from '../screens/ReceivedItemsScreen';
 import { ItemsManagementScreen } from '../screens/ItemsManagementScreen';
+import BillingItemsScreen from '../screens/BillingItemsScreen';
 import { BillingConfigScreen } from '../screens/BillingConfigScreen';
 import { BillingConfigItemForm } from '../screens/BillingConfigItemForm';
 import { ReceivedItemTemplateForm } from '../screens/ReceivedItemTemplateForm';
@@ -43,7 +44,7 @@ import SettingsScreen from '../screens/SettingsScreen';
 
 
 
-type Screen = 'Dashboard' | 'CustomerManagement' | 'CustomerDetail' | 'CustomerForm' | 'MeasurementConfig' | 'MeasurementConfigForm' | 'Billing' | 'BillingForm' | 'BillDetail' | 'BillPrint' | 'ReceivedItems' | 'ItemsManagement' | 'BillingConfig' | 'BillingConfigItemForm' | 'ReceivedItemTemplateForm' | 'Calendar' | 'Settings';
+type Screen = 'Dashboard' | 'CustomerManagement' | 'CustomerDetail' | 'CustomerForm' | 'MeasurementConfig' | 'MeasurementConfigForm' | 'Billing' | 'BillingForm' | 'BillDetail' | 'BillPrint' | 'ReceivedItems' | 'ItemsManagement' | 'BillingItems' | 'BillingConfig' | 'BillingConfigItemForm' | 'ReceivedItemTemplateForm' | 'Calendar' | 'Settings';
 
 const { width: screenWidth } = Dimensions.get('window');
 const DRAWER_WIDTH = screenWidth * 0.7; // Reduced width to add space on the right
@@ -77,6 +78,11 @@ const DrawerNavigator: React.FC = () => {
       key: 'Billing' as Screen,
       title: 'Billing',
       icon: 'receipt',
+    },
+    {
+      key: 'BillingItems' as Screen,
+      title: 'Billing Items',
+      icon: 'list',
     },
     {
       key: 'Calendar' as Screen,
@@ -261,7 +267,7 @@ const DrawerNavigator: React.FC = () => {
     performanceMonitor.startNavigation();
 
     const newNavigation: NavigationState = { screen, params };
-    const isMainScreen = ['Dashboard', 'CustomerManagement', 'Billing', 'Calendar', 'MeasurementConfig', 'BillingConfig', 'Settings'].includes(screen);
+    const isMainScreen = ['Dashboard', 'CustomerManagement', 'Billing', 'BillingItems', 'Calendar', 'MeasurementConfig', 'BillingConfig', 'Settings'].includes(screen);
     const isForwardNavigation = !isMainScreen;
 
     try {
@@ -359,6 +365,8 @@ const DrawerNavigator: React.FC = () => {
         return <ReceivedItemsScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'ItemsManagement':
         return <ItemsManagementScreen navigation={mockNavigation as any} route={mockRoute as any} />;
+      case 'BillingItems':
+        return <BillingItemsScreen navigation={mockNavigation as any} />;
       case 'BillingConfig':
         return <BillingConfigScreen navigation={mockNavigation as any} />;
       case 'BillingConfigItemForm':
@@ -390,6 +398,8 @@ const DrawerNavigator: React.FC = () => {
         return currentNavigation.params?.mode === 'edit' ? 'Edit Customer' : 'Add Customer';
       case 'Billing':
         return 'Billing';
+      case 'BillingItems':
+        return 'Billing Items';
       case 'BillingForm':
         return currentNavigation.params?.mode === 'edit' ? 'Edit Bill' : 'Create Bill';
       case 'BillDetail':
@@ -431,6 +441,8 @@ const DrawerNavigator: React.FC = () => {
         return params?.mode === 'edit' ? 'Edit Customer' : 'Add Customer';
       case 'Billing':
         return 'Billing';
+      case 'BillingItems':
+        return 'Billing Items';
       case 'BillingForm':
         return params?.mode === 'edit' ? 'Edit Bill' : 'Create Bill';
       case 'BillDetail':

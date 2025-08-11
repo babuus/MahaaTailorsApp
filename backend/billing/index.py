@@ -468,10 +468,16 @@ def get_bills(event, context):
         query_params = event.get("queryStringParameters", {}) or {}
         customer_id = query_params.get("customerId")
         status = query_params.get("status")
+        delivery_status = query_params.get("deliveryStatus")
         start_date = query_params.get("startDate")
         end_date = query_params.get("endDate")
+        delivery_start_date = query_params.get("deliveryStartDate")
+        delivery_end_date = query_params.get("deliveryEndDate")
         search_text = query_params.get("searchText")
         limit = int(query_params.get("limit", 50))
+
+        # Debug: Log the received parameters
+        logger.info(f"get_bills called with delivery_status: '{delivery_status}'")
 
         scan_kwargs = {"Limit": limit}
         
@@ -484,12 +490,24 @@ def get_bills(event, context):
         if status:
             filter_expressions.append(Attr("status").eq(status))
             
+        # Note: We'll handle delivery_status filtering after the scan for "pending" case
+        # to properly include null/missing values
+        if delivery_status and delivery_status != "pending":
+            filter_expressions.append(Attr("delivery_status").eq(delivery_status))
+            
         if start_date and end_date:
             filter_expressions.append(Attr("billing_date").between(start_date, end_date))
         elif start_date:
             filter_expressions.append(Attr("billing_date").gte(start_date))
         elif end_date:
             filter_expressions.append(Attr("billing_date").lte(end_date))
+            
+        if delivery_start_date and delivery_end_date:
+            filter_expressions.append(Attr("delivery_date").between(delivery_start_date, delivery_end_date))
+        elif delivery_start_date:
+            filter_expressions.append(Attr("delivery_date").gte(delivery_start_date))
+        elif delivery_end_date:
+            filter_expressions.append(Attr("delivery_date").lte(delivery_end_date))
             
         if search_text:
             filter_expressions.append(
@@ -504,6 +522,9 @@ def get_bills(event, context):
             scan_kwargs["FilterExpression"] = filter_expr
 
         response = bills_table.scan(**scan_kwargs)
+        
+        # Debug: Log scan results
+        logger.info(f"DynamoDB scan returned {len(response.get('Items', []))} items")
         
         bills = []
         for item in response.get("Items", []):
@@ -530,13 +551,17 @@ def get_bills(event, context):
             # Use items from separate table if available, otherwise fall back to legacy items
             items_to_use = formatted_items if formatted_items else item.get("items", [])
             
+            # Handle delivery status - default to "pending" for null/missing values
+            raw_delivery_status = item.get("delivery_status")
+            item_delivery_status = raw_delivery_status or "pending"
+            
             bill = {
                 "id": item["bill_id"],
                 "customerId": item["customer_id"],
                 "billNumber": item.get("bill_number", ""),
                 "billingDate": item["billing_date"],
                 "deliveryDate": item["delivery_date"],
-                "deliveryStatus": item.get("delivery_status", "pending"),
+                "deliveryStatus": item_delivery_status,
                 "items": items_to_use,
                 "receivedItems": item.get("received_items", []),
                 "totalAmount": total_amount,
@@ -549,6 +574,35 @@ def get_bills(event, context):
                 "updatedAt": item.get("updated_at"),
             }
             bills.append(bill)
+
+        # Post-process filtering for "pending" delivery status
+        # This handles bills with null/missing delivery_status fields
+        if delivery_status == "pending":
+            logger.info(f"Filtering for pending delivery status. Total bills before filter: {len(bills)}")
+            for bill in bills:
+                logger.info(f"Bill {bill['id']} has delivery status: '{bill['deliveryStatus']}'")
+            
+            # Include bills that have "pending" status (which includes null/missing values defaulted to "pending")
+            original_count = len(bills)
+            bills = [bill for bill in bills if bill["deliveryStatus"] == "pending"]
+            logger.info(f"Bills after pending filter: {len(bills)} (filtered out {original_count - len(bills)} bills)")
+            
+            # Additional debug: Show which bills were filtered out
+            if original_count > len(bills):
+                logger.info("Bills that were filtered out (not pending):")
+                for bill in response.get("Items", []):
+                    raw_status = bill.get("delivery_status")
+                    processed_status = raw_status or "pending"
+                    if processed_status != "pending":
+                        logger.info(f"  Bill {bill.get('bill_id')} has raw status: '{raw_status}' -> processed: '{processed_status}'")
+        
+        # Debug: Log all delivery statuses when no filter is applied
+        if not delivery_status:
+            delivery_statuses = [bill["deliveryStatus"] for bill in bills]
+            logger.info(f"All delivery statuses in response: {set(delivery_statuses)}")
+            # Log each bill's delivery status for debugging
+            for bill in bills[:5]:  # Log first 5 bills only to avoid too much logging
+                logger.info(f"Bill {bill['billNumber']} ({bill['id']}) has delivery status: '{bill['deliveryStatus']}' (raw: '{bill.get('deliveryStatus', 'MISSING')}')")
 
         logger.info(f"Fetched {len(bills)} bills")
         return {
