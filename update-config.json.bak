@@ -1,6 +1,6 @@
 {
   "updateConfig": {
-    "apiEndpoint": "https://1qd3r30gcl.execute-api.ap-south-1.amazonaws.com/prod/app-updates",
+    "apiEndpoint": "https://m91xqhoozd.execute-api.ap-south-1.amazonaws.com/dev/app-updates",
     "checkInterval": 86400000,
     "criticalCheckInterval": 14400000,
     "autoUpdate": {

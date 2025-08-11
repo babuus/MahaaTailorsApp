@@ -560,17 +560,54 @@ Resources:
             RestApiId: !Ref ApiGatewayApi
             Path: /received-item-templates/{id}
             Method: options
-        MigrateLegacyBillItems:
+
+        GetBillItems:
           Type: Api
           Properties:
             RestApiId: !Ref ApiGatewayApi
-            Path: /bills/migrate-legacy-items
-            Method: post
-        MigrateLegacyBillItemsOptions:
+            Path: /bill-items
+            Method: get
+        GetBillItemById:
           Type: Api
           Properties:
             RestApiId: !Ref ApiGatewayApi
-            Path: /bills/migrate-legacy-items
+            Path: /bill-items/{id}
+            Method: get
+        UpdateBillItem:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bill-items/{id}
+            Method: put
+        DeleteBillItem:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bill-items/{id}
+            Method: delete
+        BillItemsOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bill-items
+            Method: options
+        BillItemIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bill-items/{id}
+            Method: options
+        GetBillItemsByBillId:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bill-items/by-bill/{billId}
+            Method: get
+        BillItemsByBillIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bill-items/by-bill/{billId}
             Method: options
 
   AppUpdatesLambda:

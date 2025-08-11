@@ -123,6 +123,7 @@ def format_bill_items_for_response(bill_items):
     for item in bill_items:
         formatted_item = {
             "id": item["item_id"],
+            "billId": item.get("bill_id"),
             "type": item.get("type", "custom"),
             "name": item.get("name"),
             "description": item.get("description", ""),
@@ -131,10 +132,336 @@ def format_bill_items_for_response(bill_items):
             "totalPrice": float(item.get("total_price", 0)) if isinstance(item.get("total_price"), Decimal) else item.get("total_price", 0),
             "configItemId": item.get("config_item_id"),
             "materialSource": item.get("material_source", "customer"),
-            "deliveryStatus": item.get("delivery_status", "pending")
+            "deliveryStatus": item.get("delivery_status", "pending"),
+            "createdAt": item.get("created_at"),
+            "updatedAt": item.get("updated_at")
         }
         formatted_items.append(formatted_item)
     return formatted_items
+
+# New API functions for billing items
+def get_all_bill_items(event, context):
+    """Get all billing items with optional filtering"""
+    try:
+        query_params = event.get("queryStringParameters", {}) or {}
+        bill_id = query_params.get("billId")
+        item_type = query_params.get("type")
+        delivery_status = query_params.get("deliveryStatus")
+        limit = int(query_params.get("limit", 100))
+
+        if bill_id:
+            # Get items for specific bill
+            response = bill_items_table.query(
+                IndexName="BillIdIndex",
+                KeyConditionExpression=Key("bill_id").eq(bill_id),
+                Limit=limit
+            )
+        else:
+            # Get all items with optional filtering
+            scan_kwargs = {"Limit": limit}
+            
+            filter_expressions = []
+            if item_type:
+                filter_expressions.append(Attr("type").eq(item_type))
+            if delivery_status:
+                filter_expressions.append(Attr("delivery_status").eq(delivery_status))
+            
+            if filter_expressions:
+                filter_expr = filter_expressions[0]
+                for expr in filter_expressions[1:]:
+                    filter_expr = filter_expr & expr
+                scan_kwargs["FilterExpression"] = filter_expr
+            
+            response = bill_items_table.scan(**scan_kwargs)
+
+        items = response.get("Items", [])
+        formatted_items = format_bill_items_for_response(items)
+
+        logger.info(f"Retrieved {len(formatted_items)} bill items")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "items": formatted_items,
+                "hasMore": len(items) == limit
+            }, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_all_bill_items")
+
+def get_bill_items_by_bill_id(event, context):
+    """Get all billing items for a specific bill"""
+    try:
+        bill_id = event["pathParameters"]["billId"]
+        if not bill_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Bill ID is required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get items using the helper function
+        bill_items = get_bill_items(bill_id)
+        formatted_items = format_bill_items_for_response(bill_items)
+
+        logger.info(f"Fetched {len(formatted_items)} items for bill {bill_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "billId": bill_id,
+                "items": formatted_items,
+                "totalItems": len(formatted_items)
+            }, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_bill_items_by_bill_id")
+
+def get_bill_item_by_id(event, context):
+    """Get a specific billing item by its ID"""
+    try:
+        item_id = event["pathParameters"]["id"]
+        if not item_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Item ID is required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        response = bill_items_table.get_item(Key={"item_id": item_id})
+        item = response.get("Item")
+        
+        if not item:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill item not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        formatted_items = format_bill_items_for_response([item])
+        formatted_item = formatted_items[0] if formatted_items else {}
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps(formatted_item, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_bill_item_by_id")
+
+def update_bill_item(event, context):
+    """Update a specific billing item"""
+    try:
+        item_id = event["pathParameters"]["id"]
+        body = json.loads(event.get("body", "{}"))
+        
+        if not item_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Item ID is required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Check if item exists
+        response = bill_items_table.get_item(Key={"item_id": item_id})
+        if not response.get("Item"):
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill item not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Build update expression
+        update_expression = "SET updated_at = :updatedAt"
+        expression_attribute_values = {":updatedAt": int(datetime.now().timestamp())}
+        
+        if body.get("name"):
+            update_expression += ", #name = :name"
+            expression_attribute_values[":name"] = body["name"]
+        
+        if body.get("description") is not None:
+            update_expression += ", description = :description"
+            expression_attribute_values[":description"] = body["description"]
+        
+        if body.get("quantity"):
+            update_expression += ", quantity = :quantity"
+            expression_attribute_values[":quantity"] = int(body["quantity"])
+        
+        if body.get("unitPrice") is not None:
+            unit_price = Decimal(str(body["unitPrice"]))
+            quantity = int(body.get("quantity", response["Item"].get("quantity", 1)))
+            total_price = unit_price * quantity
+            
+            update_expression += ", unit_price = :unitPrice, total_price = :totalPrice"
+            expression_attribute_values[":unitPrice"] = unit_price
+            expression_attribute_values[":totalPrice"] = total_price
+        
+        if body.get("deliveryStatus"):
+            update_expression += ", delivery_status = :deliveryStatus"
+            expression_attribute_values[":deliveryStatus"] = body["deliveryStatus"]
+        
+        if body.get("materialSource"):
+            update_expression += ", material_source = :materialSource"
+            expression_attribute_values[":materialSource"] = body["materialSource"]
+
+        expression_attribute_names = {}
+        if body.get("name"):
+            expression_attribute_names["#name"] = "name"
+
+        # Update the item
+        update_kwargs = {
+            "Key": {"item_id": item_id},
+            "UpdateExpression": update_expression,
+            "ExpressionAttributeValues": expression_attribute_values,
+            "ReturnValues": "ALL_NEW"
+        }
+        
+        if expression_attribute_names:
+            update_kwargs["ExpressionAttributeNames"] = expression_attribute_names
+
+        response = bill_items_table.update_item(**update_kwargs)
+        updated_item = response.get("Attributes")
+
+        # Format response
+        formatted_items = format_bill_items_for_response([updated_item])
+        formatted_item = formatted_items[0] if formatted_items else {}
+
+        logger.info(f"Updated bill item: {item_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps(formatted_item, cls=DecimalEncoder),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "update_bill_item")
+
+def delete_bill_item(event, context):
+    """Delete a specific billing item"""
+    try:
+        item_id = event["pathParameters"]["id"]
+        if not item_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Item ID is required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get the item first to get bill_id for recalculation
+        response = bill_items_table.get_item(Key={"item_id": item_id})
+        item = response.get("Item")
+        
+        if not item:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill item not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        bill_id = item["bill_id"]
+        item_total = float(item.get("total_price", 0))
+
+        # Delete the item
+        bill_items_table.delete_item(Key={"item_id": item_id})
+
+        # Update the bill's total amount
+        bill_response = bills_table.get_item(Key={"bill_id": bill_id})
+        if bill_response.get("Item"):
+            bill = bill_response["Item"]
+            current_total = float(bill.get("total_amount", 0))
+            new_total = max(0, current_total - item_total)
+            
+            # Recalculate outstanding amount
+            paid_amount = float(bill.get("paid_amount", 0))
+            new_outstanding = new_total - paid_amount
+            
+            # Update status
+            if new_outstanding <= 0:
+                status = "fully_paid"
+            elif paid_amount > 0:
+                status = "partially_paid"
+            else:
+                status = "unpaid"
+
+            bills_table.update_item(
+                Key={"bill_id": bill_id},
+                UpdateExpression="SET total_amount = :totalAmount, outstanding_amount = :outstandingAmount, #s = :status, updated_at = :updatedAt",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={
+                    ":totalAmount": Decimal(str(new_total)),
+                    ":outstandingAmount": Decimal(str(new_outstanding)),
+                    ":status": status,
+                    ":updatedAt": int(datetime.now().timestamp())
+                }
+            )
+
+        logger.info(f"Deleted bill item: {item_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "Bill item deleted successfully"}),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "delete_bill_item")
 
 def get_bills(event, context):
     try:
@@ -1541,73 +1868,6 @@ def add_received_item_template(event, context):
     except Exception as e:
         return handle_error(e, "add_received_item_template")
 
-def migrate_legacy_bill_items(event, context):
-    """
-    Utility function to migrate existing bills from legacy structure (items stored in bills table)
-    to new structure (items stored in separate BillItems table)
-    """
-    try:
-        # Scan all bills
-        response = bills_table.scan()
-        bills = response.get("Items", [])
-        
-        migrated_count = 0
-        
-        for bill in bills:
-            bill_id = bill["bill_id"]
-            legacy_items = bill.get("items", [])
-            
-            # Check if this bill has legacy items and no items in the new table
-            existing_items = get_bill_items(bill_id)
-            
-            if legacy_items and not existing_items:
-                logger.info(f"Migrating {len(legacy_items)} items for bill {bill_id}")
-                
-                # Convert legacy items to new format and save
-                processed_items = []
-                for item in legacy_items:
-                    processed_item = {
-                        "id": item.get("id", f"item-{os.urandom(8).hex()}"),
-                        "type": item.get("type", "custom"),
-                        "name": item.get("name"),
-                        "description": item.get("description", ""),
-                        "quantity": int(item.get("quantity", 1)),
-                        "unitPrice": float(item.get("unitPrice", 0)) if isinstance(item.get("unitPrice"), Decimal) else item.get("unitPrice", 0),
-                        "totalPrice": float(item.get("totalPrice", 0)) if isinstance(item.get("totalPrice"), Decimal) else item.get("totalPrice", 0),
-                        "configItemId": item.get("configItemId"),
-                        "materialSource": item.get("materialSource", "customer"),
-                        "deliveryStatus": item.get("deliveryStatus", "pending")
-                    }
-                    processed_items.append(processed_item)
-                
-                # Save items to new table
-                save_bill_items(bill_id, processed_items)
-                
-                # Optionally remove items from the bills table to clean up
-                bills_table.update_item(
-                    Key={"bill_id": bill_id},
-                    UpdateExpression="REMOVE #items",
-                    ExpressionAttributeNames={"#items": "items"}
-                )
-                
-                migrated_count += 1
-        
-        logger.info(f"Migration completed. Migrated {migrated_count} bills")
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
-                "message": f"Migration completed successfully. Migrated {migrated_count} bills.",
-                "migratedCount": migrated_count
-            }),
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "*",
-                "Access-Control-Allow-Headers": "*",
-            },
-        }
-    except Exception as e:
-        return handle_error(e, "migrate_legacy_bill_items")
 
 def lambda_handler(event, context):
     logger.info(f"Received event: {json.dumps(event)}")
@@ -1622,11 +1882,7 @@ def lambda_handler(event, context):
             return add_bill(event, context)
         elif http_method == "OPTIONS":
             return handle_options(event, context)
-    elif path == "/bills/migrate-legacy-items":
-        if http_method == "POST":
-            return migrate_legacy_bill_items(event, context)
-        elif http_method == "OPTIONS":
-            return handle_options(event, context)
+
     elif path.startswith("/bills/") and "/payments" in path:
         # Handle payment endpoints
         if path.endswith("/payments"):
@@ -1677,6 +1933,25 @@ def lambda_handler(event, context):
             return update_received_item_template(event, context)
         elif http_method == "DELETE":
             return delete_received_item_template(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path == "/bill-items":
+        if http_method == "GET":
+            return get_all_bill_items(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path.startswith("/bill-items/by-bill/"):
+        if http_method == "GET":
+            return get_bill_items_by_bill_id(event, context)
+        elif http_method == "OPTIONS":
+            return handle_options(event, context)
+    elif path.startswith("/bill-items/"):
+        if http_method == "GET":
+            return get_bill_item_by_id(event, context)
+        elif http_method == "PUT":
+            return update_bill_item(event, context)
+        elif http_method == "DELETE":
+            return delete_bill_item(event, context)
         elif http_method == "OPTIONS":
             return handle_options(event, context)
     elif path.startswith("/customers/") and "/measurements" in path:

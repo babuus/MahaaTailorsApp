@@ -10,7 +10,7 @@ export interface EnvironmentConfig {
 }
 
 // Environment detection - will be updated by deploy script
-const DEPLOYMENT_ENVIRONMENT = 'production'; // This will be replaced by deploy script
+const DEPLOYMENT_ENVIRONMENT = 'development'; // This will be replaced by deploy script
 
 // Default configuration - will be updated by deploy script
 export const ENV_CONFIG: EnvironmentConfig = {
