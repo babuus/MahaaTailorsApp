@@ -8,7 +8,7 @@ import {
 } from 'react-native';
 import { COLORS, SPACING, TYPOGRAPHY, BORDER_RADIUS } from '../constants';
 import { useThemeContext } from '../contexts/ThemeContext';
-import { SimpleIcon } from './SimpleIcon';
+import SimpleIcon from './SimpleIcon';
 
 interface ModernButtonProps {
     title: string;

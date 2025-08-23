@@ -6,6 +6,9 @@ import logging
 from datetime import datetime
 from decimal import Decimal
 from boto3.dynamodb.conditions import Attr, Key
+import uuid
+import base64
+from urllib.parse import unquote
 
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -23,6 +26,7 @@ CUSTOMERS_TABLE_NAME = os.environ.get("CUSTOMERS_TABLE_NAME", "Customers")
 BILLING_CONFIG_ITEMS_TABLE_NAME = os.environ.get("BILLING_CONFIG_ITEMS_TABLE_NAME", "BillingConfigItems")
 RECEIVED_ITEM_TEMPLATES_TABLE_NAME = os.environ.get("RECEIVED_ITEM_TEMPLATES_TABLE_NAME", "ReceivedItemTemplates")
 BILL_ITEMS_TABLE_NAME = os.environ.get("BILL_ITEMS_TABLE_NAME", "BillItems")
+IMAGES_BUCKET_NAME = os.environ.get("IMAGES_BUCKET_NAME", "mahaatailors-assets-dev")
 
 print(f"DEBUG: Using REGION: {REGION}")
 print(f"DEBUG: Using BILLS_TABLE_NAME: {BILLS_TABLE_NAME}")
@@ -30,8 +34,10 @@ print(f"DEBUG: Using CUSTOMERS_TABLE_NAME: {CUSTOMERS_TABLE_NAME}")
 print(f"DEBUG: Using BILLING_CONFIG_ITEMS_TABLE_NAME: {BILLING_CONFIG_ITEMS_TABLE_NAME}")
 print(f"DEBUG: Using RECEIVED_ITEM_TEMPLATES_TABLE_NAME: {RECEIVED_ITEM_TEMPLATES_TABLE_NAME}")
 print(f"DEBUG: Using BILL_ITEMS_TABLE_NAME: {BILL_ITEMS_TABLE_NAME}")
+print(f"DEBUG: Using IMAGES_BUCKET_NAME: {IMAGES_BUCKET_NAME}")
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
+s3_client = boto3.client("s3", region_name=REGION)
 bills_table = dynamodb.Table(BILLS_TABLE_NAME)
 customers_table = dynamodb.Table(CUSTOMERS_TABLE_NAME)
 billing_config_items_table = dynamodb.Table(BILLING_CONFIG_ITEMS_TABLE_NAME)
@@ -77,15 +83,35 @@ def get_bill_items(bill_id):
 def save_bill_items(bill_id, items):
     """Save bill items to the BillItems table"""
     try:
-        # First, delete existing items for this bill
+        # Get existing items to preserve reference_images
         existing_items = get_bill_items(bill_id)
-        for item in existing_items:
-            bill_items_table.delete_item(Key={"item_id": item["item_id"]})
+        existing_items_map = {item["item_id"]: item for item in existing_items}
         
-        # Then save new items
+        # Get list of new item IDs
+        new_item_ids = {item["id"] for item in items}
+        
+        # Delete items that are no longer in the new list
+        for existing_item in existing_items:
+            if existing_item["item_id"] not in new_item_ids:
+                bill_items_table.delete_item(Key={"item_id": existing_item["item_id"]})
+                logger.info(f"Deleted removed item: {existing_item['item_id']}")
+        
+        # Save/update items
         for item in items:
+            item_id = item["id"]
+            existing_item = existing_items_map.get(item_id)
+            
+            # Debug: Log what we're saving
+            internal_notes = item.get("internalNotes", "")
+            logger.info(f"DEBUG save_bill_items - Item {item_id}: internalNotes='{internal_notes}'")
+            
+            # Preserve reference_images from existing item
+            reference_images = []
+            if existing_item and "reference_images" in existing_item:
+                reference_images = existing_item["reference_images"]
+            
             item_record = {
-                "item_id": item["id"],
+                "item_id": item_id,
                 "bill_id": bill_id,
                 "type": item.get("type", "custom"),
                 "name": item.get("name"),
@@ -96,10 +122,18 @@ def save_bill_items(bill_id, items):
                 "config_item_id": item.get("configItemId"),
                 "material_source": item.get("materialSource", "customer"),
                 "delivery_status": item.get("deliveryStatus", "pending"),
-                "created_at": int(datetime.now().timestamp()),
+                "internal_notes": internal_notes,  # Save internal notes
+                "reference_images": reference_images,  # Preserve existing images
+                "created_at": existing_item.get("created_at", int(datetime.now().timestamp())) if existing_item else int(datetime.now().timestamp()),
                 "updated_at": int(datetime.now().timestamp())
             }
+            
             bill_items_table.put_item(Item=item_record)
+            
+            if existing_item:
+                logger.info(f"Updated existing item: {item_id} (preserved {len(reference_images)} images)")
+            else:
+                logger.info(f"Created new item: {item_id}")
         
         logger.info(f"Saved {len(items)} items for bill {bill_id}")
     except Exception as e:
@@ -133,6 +167,7 @@ def format_bill_items_for_response(bill_items):
             "configItemId": item.get("config_item_id"),
             "materialSource": item.get("material_source", "customer"),
             "deliveryStatus": item.get("delivery_status", "pending"),
+            "internalNotes": item.get("internal_notes", ""),  # Include internal notes in response
             "createdAt": item.get("created_at"),
             "updatedAt": item.get("updated_at")
         }
@@ -343,6 +378,10 @@ def update_bill_item(event, context):
         if body.get("materialSource"):
             update_expression += ", material_source = :materialSource"
             expression_attribute_values[":materialSource"] = body["materialSource"]
+        
+        if body.get("internalNotes") is not None:
+            update_expression += ", internal_notes = :internalNotes"
+            expression_attribute_values[":internalNotes"] = body["internalNotes"]
 
         expression_attribute_names = {}
         if body.get("name"):
@@ -569,6 +608,7 @@ def get_bills(event, context):
                 "outstandingAmount": outstanding_amount,
                 "status": status,
                 "payments": payments,
+                "discount": float(item.get("discount", 0)) if isinstance(item.get("discount", 0), Decimal) else item.get("discount", 0),
                 "notes": item.get("notes", ""),
                 "createdAt": item.get("created_at"),
                 "updatedAt": item.get("updated_at"),
@@ -673,6 +713,11 @@ def get_bill_by_id(event, context):
         bill_items = get_bill_items(bill_item["bill_id"])
         formatted_items = format_bill_items_for_response(bill_items)
         
+        # Debug: Log the items data
+        logger.info(f"DEBUG get_bill_by_id - Bill {bill_item['bill_id']}: Found {len(bill_items)} raw items, {len(formatted_items)} formatted items")
+        if formatted_items:
+            logger.info(f"DEBUG get_bill_by_id - First item internal_notes: {formatted_items[0].get('internalNotes', 'MISSING')}")
+        
         # Use items from separate table if available, otherwise fall back to legacy items
         items_to_use = formatted_items if formatted_items else bill_item.get("items", [])
 
@@ -690,6 +735,7 @@ def get_bill_by_id(event, context):
             "outstandingAmount": outstanding_amount,
             "status": status,
             "payments": payments,
+            "discount": float(bill_item.get("discount", 0)) if isinstance(bill_item.get("discount", 0), Decimal) else bill_item.get("discount", 0),
             "notes": bill_item.get("notes", ""),
             "createdAt": bill_item.get("created_at"),
             "updatedAt": bill_item.get("updated_at"),
@@ -718,6 +764,7 @@ def add_bill(event, context):
         items = body.get("items", [])
         received_items = body.get("receivedItems", [])
         payments = body.get("payments", [])  # Add support for payments during creation
+        discount = body.get("discount", 0)  # Add discount support
         notes = body.get("notes", "")
 
         if not customer_id or not billing_date or not delivery_date or not items:
@@ -754,7 +801,8 @@ def add_bill(event, context):
                 "totalPrice": item_total,
                 "configItemId": item.get("configItemId"),
                 "materialSource": item.get("materialSource", "customer"),
-                "deliveryStatus": item.get("deliveryStatus", "pending")
+                "deliveryStatus": item.get("deliveryStatus", "pending"),
+                "internalNotes": item.get("internalNotes", "")  # Include internal notes
             }
             processed_items.append(processed_item)
             total_amount += item_total
@@ -831,6 +879,7 @@ def add_bill(event, context):
             "outstanding_amount": outstanding_amount,
             "status": status,
             "payments": processed_payments,
+            "discount": Decimal(str(discount)) if discount else Decimal("0"),
             "notes": notes,
             "created_at": now,
             "updated_at": now,
@@ -856,6 +905,7 @@ def add_bill(event, context):
             "outstandingAmount": float(outstanding_amount),
             "status": status,
             "payments": processed_payments,
+            "discount": float(discount) if discount else 0,
             "notes": notes,
             "createdAt": now,
             "updatedAt": now,
@@ -885,6 +935,7 @@ def update_bill(event, context):
         delivery_status = body.get("deliveryStatus", "pending")  # Add delivery status support
         items = body.get("items", [])
         received_items = body.get("receivedItems", [])
+        discount = body.get("discount", 0)  # Add discount support
         notes = body.get("notes", "")
 
         if not bill_id or not customer_id or not billing_date or not delivery_date or not items:
@@ -916,7 +967,8 @@ def update_bill(event, context):
                 "totalPrice": item_total,
                 "configItemId": item.get("configItemId"),
                 "materialSource": item.get("materialSource", "customer"),
-                "deliveryStatus": item.get("deliveryStatus", "pending")
+                "deliveryStatus": item.get("deliveryStatus", "pending"),
+                "internalNotes": item.get("internalNotes", "")  # Include internal notes
             }
             processed_items.append(processed_item)
             total_amount += item_total
@@ -963,7 +1015,7 @@ def update_bill(event, context):
             status = "unpaid"
 
         # Update bill without items (items will be stored separately)
-        update_expression = "SET customer_id = :customerId, billing_date = :billingDate, delivery_date = :deliveryDate, delivery_status = :deliveryStatus, received_items = :receivedItems, total_amount = :totalAmount, outstanding_amount = :outstandingAmount, #s = :status, notes = :notes, updated_at = :updatedAt"
+        update_expression = "SET customer_id = :customerId, billing_date = :billingDate, delivery_date = :deliveryDate, delivery_status = :deliveryStatus, received_items = :receivedItems, total_amount = :totalAmount, outstanding_amount = :outstandingAmount, #s = :status, discount = :discount, notes = :notes, updated_at = :updatedAt"
         expression_attribute_names = {"#s": "status"}
         expression_attribute_values = {
             ":customerId": customer_id,
@@ -974,6 +1026,7 @@ def update_bill(event, context):
             ":totalAmount": Decimal(str(total_amount)),
             ":outstandingAmount": Decimal(str(outstanding_amount)),
             ":status": status,
+            ":discount": Decimal(str(discount)) if discount else Decimal("0"),
             ":notes": notes,
             ":updatedAt": now,
         }
@@ -1006,6 +1059,7 @@ def update_bill(event, context):
             "outstandingAmount": float(updated_item.get("outstanding_amount", 0)) if isinstance(updated_item.get("outstanding_amount", 0), Decimal) else updated_item.get("outstanding_amount", 0),
             "status": updated_item.get("status", "unpaid"),
             "payments": updated_item.get("payments", []),
+            "discount": float(updated_item.get("discount", 0)) if isinstance(updated_item.get("discount", 0), Decimal) else updated_item.get("discount", 0),
             "notes": updated_item.get("notes", ""),
             "createdAt": updated_item.get("created_at"),
             "updatedAt": updated_item.get("updated_at"),
@@ -1323,6 +1377,7 @@ def add_payment(event, context):
             "outstandingAmount": float(updated_bill.get("outstanding_amount", 0)) if isinstance(updated_bill.get("outstanding_amount", 0), Decimal) else updated_bill.get("outstanding_amount", 0),
             "status": updated_bill.get("status", "unpaid"),
             "payments": updated_bill.get("payments", []),
+            "discount": float(updated_bill.get("discount", 0)) if isinstance(updated_bill.get("discount", 0), Decimal) else updated_bill.get("discount", 0),
             "notes": updated_bill.get("notes", ""),
             "createdAt": updated_bill.get("created_at"),
             "updatedAt": updated_bill.get("updated_at"),
@@ -1468,6 +1523,7 @@ def update_payment(event, context):
             "outstandingAmount": float(updated_bill.get("outstanding_amount", 0)) if isinstance(updated_bill.get("outstanding_amount", 0), Decimal) else updated_bill.get("outstanding_amount", 0),
             "status": updated_bill.get("status", "unpaid"),
             "payments": updated_bill.get("payments", []),
+            "discount": float(updated_bill.get("discount", 0)) if isinstance(updated_bill.get("discount", 0), Decimal) else updated_bill.get("discount", 0),
             "notes": updated_bill.get("notes", ""),
             "createdAt": updated_bill.get("created_at"),
             "updatedAt": updated_bill.get("updated_at"),
@@ -1594,6 +1650,7 @@ def delete_payment(event, context):
             "outstandingAmount": float(updated_bill.get("outstanding_amount", 0)) if isinstance(updated_bill.get("outstanding_amount", 0), Decimal) else updated_bill.get("outstanding_amount", 0),
             "status": updated_bill.get("status", "unpaid"),
             "payments": updated_bill.get("payments", []),
+            "discount": float(updated_bill.get("discount", 0)) if isinstance(updated_bill.get("discount", 0), Decimal) else updated_bill.get("discount", 0),
             "notes": updated_bill.get("notes", ""),
             "createdAt": updated_bill.get("created_at"),
             "updatedAt": updated_bill.get("updated_at")
@@ -1923,6 +1980,340 @@ def add_received_item_template(event, context):
         return handle_error(e, "add_received_item_template")
 
 
+# Image Upload Functions
+def upload_bill_item_image(event, context):
+    """Upload an image for a bill item"""
+    try:
+        logger.info(f"DEBUG: upload_bill_item_image called with event: {json.dumps(event)}")
+        bill_id = event["pathParameters"]["id"]
+        item_id = event["pathParameters"]["itemId"]
+        logger.info(f"DEBUG: Extracted bill_id: {bill_id}, item_id: {item_id}")
+        body = json.loads(event.get("body", "{}"))
+        
+        if not bill_id or not item_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Bill ID and Item ID are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Validate that the bill and item exist
+        bill_response = bills_table.get_item(Key={"bill_id": bill_id})
+        if not bill_response.get("Item"):
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        item_response = bill_items_table.get_item(Key={"item_id": item_id})
+        if not item_response.get("Item"):
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill item not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get image data from request
+        image_data = body.get("imageData")  # Base64 encoded image
+        image_name = body.get("imageName", f"image_{uuid.uuid4().hex}")
+        content_type = body.get("contentType", "image/jpeg")
+        
+        if not image_data:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Image data is required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Decode base64 image
+        try:
+            image_bytes = base64.b64decode(image_data)
+        except Exception as e:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Invalid image data format."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Generate unique image ID and S3 key
+        image_id = str(uuid.uuid4())
+        file_extension = image_name.split('.')[-1] if '.' in image_name else 'jpg'
+        s3_key = f"bill-items/{bill_id}/{item_id}/{image_id}.{file_extension}"
+
+        # Upload to S3
+        try:
+            s3_client.put_object(
+                Bucket=IMAGES_BUCKET_NAME,
+                Key=s3_key,
+                Body=image_bytes,
+                ContentType=content_type,
+                Metadata={
+                    'bill_id': bill_id,
+                    'item_id': item_id,
+                    'image_id': image_id,
+                    'original_name': image_name
+                }
+            )
+        except Exception as e:
+            logger.error(f"Error uploading to S3: {e}")
+            return {
+                "statusCode": 500,
+                "body": json.dumps({"error": "Failed to upload image to storage."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Generate public URL
+        image_url = f"https://{IMAGES_BUCKET_NAME}.s3.{REGION}.amazonaws.com/{s3_key}"
+
+        # Update bill item with image URL using atomic list append to prevent race conditions
+        try:
+            # First, try to append to existing list atomically
+            bill_items_table.update_item(
+                Key={"item_id": item_id},
+                UpdateExpression="SET reference_images = list_append(if_not_exists(reference_images, :empty_list), :new_image), updated_at = :updatedAt",
+                ExpressionAttributeValues={
+                    ":new_image": [image_url],
+                    ":empty_list": [],
+                    ":updatedAt": int(datetime.now().timestamp())
+                }
+            )
+            logger.info(f"Successfully appended image URL to item {item_id} using atomic operation")
+        except Exception as update_error:
+            logger.error(f"Atomic update failed for item {item_id}: {update_error}")
+            # Fallback to read-modify-write with retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # Re-read the current item to get latest state
+                    item_response = bill_items_table.get_item(Key={"item_id": item_id})
+                    if not item_response.get("Item"):
+                        logger.error(f"Item {item_id} not found during retry {attempt + 1}")
+                        break
+                    
+                    item = item_response["Item"]
+                    current_images = item.get("reference_images", [])
+                    
+                    # Check if image URL already exists to prevent duplicates
+                    if image_url not in current_images:
+                        current_images.append(image_url)
+                        
+                        bill_items_table.update_item(
+                            Key={"item_id": item_id},
+                            UpdateExpression="SET reference_images = :images, updated_at = :updatedAt",
+                            ExpressionAttributeValues={
+                                ":images": current_images,
+                                ":updatedAt": int(datetime.now().timestamp())
+                            }
+                        )
+                        logger.info(f"Successfully updated item {item_id} with image URL on retry {attempt + 1}")
+                        break
+                    else:
+                        logger.info(f"Image URL already exists in item {item_id}, skipping duplicate")
+                        break
+                        
+                except Exception as retry_error:
+                    logger.error(f"Retry {attempt + 1} failed for item {item_id}: {retry_error}")
+                    if attempt == max_retries - 1:
+                        raise retry_error
+                    # Wait a bit before retrying
+                    import time
+                    time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+
+        logger.info(f"Uploaded image for bill item {item_id}: {image_url}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "imageId": image_id,
+                "imageUrl": image_url,
+                "s3Key": s3_key,
+                "message": "Image uploaded successfully"
+            }),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "upload_bill_item_image")
+
+def get_bill_item_images(event, context):
+    """Get all images for a bill item"""
+    try:
+        bill_id = event["pathParameters"]["id"]
+        item_id = event["pathParameters"]["itemId"]
+        
+        if not bill_id or not item_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Bill ID and Item ID are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get bill item
+        item_response = bill_items_table.get_item(Key={"item_id": item_id})
+        if not item_response.get("Item"):
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill item not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        item = item_response["Item"]
+        images = item.get("reference_images", [])
+
+        return {
+            "statusCode": 200,
+            "body": json.dumps({
+                "billId": bill_id,
+                "itemId": item_id,
+                "images": images,
+                "totalImages": len(images)
+            }),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "get_bill_item_images")
+
+def delete_bill_item_image(event, context):
+    """Delete a specific image from a bill item"""
+    try:
+        bill_id = event["pathParameters"]["id"]
+        item_id = event["pathParameters"]["itemId"]
+        image_id = event["pathParameters"]["imageId"]
+        
+        if not bill_id or not item_id or not image_id:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Bill ID, Item ID, and Image ID are required."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Get bill item
+        item_response = bill_items_table.get_item(Key={"item_id": item_id})
+        if not item_response.get("Item"):
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Bill item not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        item = item_response["Item"]
+        current_images = item.get("reference_images", [])
+        
+        # Find and remove the image URL that contains the image_id
+        image_to_remove = None
+        updated_images = []
+        
+        for image_url in current_images:
+            if image_id in image_url:
+                image_to_remove = image_url
+            else:
+                updated_images.append(image_url)
+        
+        if not image_to_remove:
+            return {
+                "statusCode": 404,
+                "body": json.dumps({"error": "Image not found."}),
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "*",
+                    "Access-Control-Allow-Headers": "*",
+                },
+            }
+
+        # Extract S3 key from URL
+        s3_key = image_to_remove.split(f"{IMAGES_BUCKET_NAME}.s3.{REGION}.amazonaws.com/")[-1]
+        
+        # Delete from S3
+        try:
+            s3_client.delete_object(Bucket=IMAGES_BUCKET_NAME, Key=s3_key)
+        except Exception as e:
+            logger.error(f"Error deleting from S3: {e}")
+            # Continue with database update even if S3 delete fails
+
+        # Update bill item
+        bill_items_table.update_item(
+            Key={"item_id": item_id},
+            UpdateExpression="SET reference_images = :images, updated_at = :updatedAt",
+            ExpressionAttributeValues={
+                ":images": updated_images,
+                ":updatedAt": int(datetime.now().timestamp())
+            }
+        )
+
+        logger.info(f"Deleted image {image_id} from bill item {item_id}")
+        return {
+            "statusCode": 200,
+            "body": json.dumps({"message": "Image deleted successfully"}),
+            "headers": {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "*",
+                "Access-Control-Allow-Headers": "*",
+            },
+        }
+    except Exception as e:
+        return handle_error(e, "delete_bill_item_image")
+
 def lambda_handler(event, context):
     logger.info(f"Received event: {json.dumps(event)}")
     http_method = event.get("httpMethod")
@@ -1937,6 +2328,21 @@ def lambda_handler(event, context):
         elif http_method == "OPTIONS":
             return handle_options(event, context)
 
+    # Image endpoints - must come before general /bills/ handling
+    elif "/bills/" in path and "/items/" in path and "/images" in path:
+        logger.info(f"DEBUG: Image endpoint matched! Path: {path}, Method: {http_method}")
+        if path.endswith("/images") and http_method == "POST":
+            logger.info("DEBUG: Calling upload_bill_item_image")
+            return upload_bill_item_image(event, context)
+        elif path.endswith("/images") and http_method == "GET":
+            logger.info("DEBUG: Calling get_bill_item_images")
+            return get_bill_item_images(event, context)
+        elif "/images/" in path and http_method == "DELETE":
+            logger.info("DEBUG: Calling delete_bill_item_image")
+            return delete_bill_item_image(event, context)
+        elif path.endswith("/images") and http_method == "OPTIONS":
+            logger.info("DEBUG: Calling handle_options for images")
+            return handle_options(event, context)
     elif path.startswith("/bills/") and "/payments" in path:
         # Handle payment endpoints
         if path.endswith("/payments"):
@@ -1978,10 +2384,8 @@ def lambda_handler(event, context):
     elif path == "/received-item-templates":
         if http_method == "GET":
             return get_received_item_templates(event, context)
-        elif http_method == "POST":
-            return add_received_item_template(event, context)
-        elif http_method == "OPTIONS":
-            return handle_options(event, context)
+    
+
     elif path.startswith("/received-item-templates/"):
         if http_method == "PUT":
             return update_received_item_template(event, context)
@@ -2018,6 +2422,8 @@ def lambda_handler(event, context):
         elif http_method == "OPTIONS":
             return handle_options(event, context)
 
+    logger.error(f"DEBUG: No route matched! Path: {path}, Method: {http_method}")
+    logger.error(f"DEBUG: Path analysis - contains '/images': {'/images' in path}, contains '/bills/': {'/bills/' in path}, contains '/items/': {'/items/' in path}")
     return {
         "statusCode": 404,
         "body": json.dumps({"error": "Not Found"}),

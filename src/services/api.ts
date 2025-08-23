@@ -541,6 +541,14 @@ class ApiService {
       true
     );
 
+    // Debug: Log the backend response to see what we're getting
+    console.log('API getBillById - Backend response:', {
+      billId: backendBill.id,
+      itemsCount: backendBill.items?.length || 0,
+      firstItem: backendBill.items?.[0],
+      firstItemInternalNotes: backendBill.items?.[0]?.internalNotes
+    });
+
     // Transform backend response to match expected Bill format
     const bill: Bill = {
       id: backendBill.id,
@@ -962,6 +970,67 @@ class ApiService {
     await cacheManager.remove(`received_item_template_${id}`);
   }
 
+  // Bill Item Image API methods
+  async uploadBillItemImage(billId: string, itemId: string, imageData: string, imageName: string, contentType: string = 'image/jpeg'): Promise<{
+    imageId: string;
+    imageUrl: string;
+    s3Key: string;
+    message: string;
+  }> {
+    const result = await this.makeRequest(
+      () => apiClient.post<{
+        imageId: string;
+        imageUrl: string;
+        s3Key: string;
+        message: string;
+      }>(`/bills/${billId}/items/${itemId}/images`, {
+        imageData,
+        imageName,
+        contentType
+      })
+    );
+
+    // Invalidate related caches
+    await cacheManager.remove('bills_');
+    await cacheManager.remove(`bill_${billId}`);
+    await cacheManager.remove(`bill_item_images_${billId}_${itemId}`);
+    
+    return result;
+  }
+
+  async getBillItemImages(billId: string, itemId: string): Promise<{
+    billId: string;
+    itemId: string;
+    images: string[];
+    totalImages: number;
+  }> {
+    const cacheKey = `bill_item_images_${billId}_${itemId}`;
+    
+    return this.makeRequest(
+      () => apiClient.get<{
+        billId: string;
+        itemId: string;
+        images: string[];
+        totalImages: number;
+      }>(`/bills/${billId}/items/${itemId}/images`),
+      cacheKey,
+      true
+    );
+  }
+
+  async deleteBillItemImage(billId: string, itemId: string, imageId: string): Promise<{ message: string }> {
+    const result = await this.makeRequest(
+      () => apiClient.delete<{ message: string }>(`/bills/${billId}/items/${itemId}/images/${imageId}`)
+    );
+
+    // Invalidate related caches
+    await cacheManager.remove('bills_');
+    await cacheManager.remove(`bill_${billId}`);
+    await cacheManager.remove(`bill_item_images_${billId}_${itemId}`);
+    
+    return result;
+  }
+
   // Bill Items API methods
   async getBillItems(params: {
     billId?: string;
@@ -1076,5 +1145,10 @@ export const getReceivedItemTemplates = apiService.getReceivedItemTemplates.bind
 export const createReceivedItemTemplate = apiService.createReceivedItemTemplate.bind(apiService);
 export const updateReceivedItemTemplate = apiService.updateReceivedItemTemplate.bind(apiService);
 export const deleteReceivedItemTemplate = apiService.deleteReceivedItemTemplate.bind(apiService);
+
+// Bill Item Image API methods
+export const uploadBillItemImage = apiService.uploadBillItemImage.bind(apiService);
+export const getBillItemImages = apiService.getBillItemImages.bind(apiService);
+export const deleteBillItemImage = apiService.deleteBillItemImage.bind(apiService);
 export const clearCache = apiService.clearCache.bind(apiService);
 export const ping = apiService.ping.bind(apiService);

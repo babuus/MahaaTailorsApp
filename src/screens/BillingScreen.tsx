@@ -522,7 +522,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
       {!searchQuery && statusFilter === 'all' && (
         <ModernButton
           title="Create Bill"
-          onPress={() => navigation.navigate('BillingForm', { mode: 'add' })}
+          onPress={() => navigation.navigate('CreateBillWizard')}
           style={styles.emptyStateButton}
         />
       )}
@@ -988,7 +988,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({
       )}
 
       <FloatingActionButton
-        onPress={() => navigation.navigate('BillingForm', { mode: 'add' })}
+        onPress={() => navigation.navigate('CreateBillWizard')}
         icon="add"
         testID="add-bill-fab"
         style={styles.addBillFab}

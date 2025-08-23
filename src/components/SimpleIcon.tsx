@@ -23,6 +23,7 @@ const ICON_MAPPING = {
   home: 'home',
   dashboard: 'dashboard',
   settings: 'settings',
+  'settings-applications': 'settings-applications',
   search: 'search',
 
   // Actions
@@ -81,6 +82,7 @@ const ICON_MAPPING = {
 
   // Visibility & Security
   visible: 'visibility',
+  visibility: 'visibility',
   'visibility-off': 'visibility-off',
   hidden: 'visibility-off',
   lock: 'lock',
@@ -125,6 +127,7 @@ const ICON_MAPPING = {
 
   // Additional missing icons
   filter: 'filter-list',
+  'filter-list': 'filter-list',
   sort: 'sort',
   today: 'today',
   'chevron-left': 'chevron-left',
@@ -132,6 +135,14 @@ const ICON_MAPPING = {
   'event-available': 'event-available',
   'expand-more': 'expand-more',
   'expand-less': 'expand-less',
+
+  // Notes and documentation
+  note: 'note',
+  notes: 'note',
+
+  // Additional file and document icons
+  'description': 'description',
+  'insert-drive-file': 'insert-drive-file',
 } as const;
 
 const SimpleIcon: React.FC<SimpleIconProps> = ({

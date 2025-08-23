@@ -148,6 +148,7 @@ export interface PaymentValidationSchema {
   amount: FieldValidationRule;
   paymentDate: FieldValidationRule;
   paymentMethod: FieldValidationRule;
+  discount: FieldValidationRule;
   notes: FieldValidationRule;
 }
 
@@ -286,6 +287,10 @@ export const PAYMENT_VALIDATION_SCHEMA: PaymentValidationSchema = {
   },
   paymentMethod: {
     required: true,
+  },
+  discount: {
+    required: false,
+    pattern: VALIDATION_PATTERNS.DECIMAL,
   },
   notes: {
     required: false,

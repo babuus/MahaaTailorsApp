@@ -7,15 +7,16 @@ import {
   TextInput,
   Alert,
   ScrollView,
+  Modal,
 } from 'react-native';
 import MaterialIcon from './MaterialIcon';
 import { ModernCard, ModernButton, LoadingSpinner } from './';
-import { 
-  Payment, 
+import {
+  Payment,
   Bill,
   BillStatus,
   CreatePaymentRequest,
-  UpdatePaymentRequest 
+  UpdatePaymentRequest
 } from '../types';
 import { addPayment, updatePayment, deletePayment } from '../services/api';
 import { useFormValidation } from '../hooks/useFormValidation';
@@ -83,50 +84,50 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
     },
     validator: (data) => {
       const validationErrors: any[] = [];
-      
+
       // Calculate current outstanding amount dynamically
       const currentPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
       const currentOutstandingAmount = bill.totalAmount - currentPaidAmount;
-      
+
       if (data.amount <= 0) {
-        validationErrors.push({ 
-          field: 'amount', 
-          message: VALIDATION_MESSAGES.PRICE_REQUIRED 
+        validationErrors.push({
+          field: 'amount',
+          message: VALIDATION_MESSAGES.PRICE_REQUIRED
         });
       }
-      
+
       if (data.amount > currentOutstandingAmount) {
-        validationErrors.push({ 
-          field: 'amount', 
-          message: VALIDATION_MESSAGES.PAYMENT_EXCEEDS_OUTSTANDING 
+        validationErrors.push({
+          field: 'amount',
+          message: VALIDATION_MESSAGES.PAYMENT_EXCEEDS_OUTSTANDING
         });
       }
-      
+
       if (!data.paymentDate) {
-        validationErrors.push({ 
-          field: 'paymentDate', 
-          message: VALIDATION_MESSAGES.REQUIRED 
+        validationErrors.push({
+          field: 'paymentDate',
+          message: VALIDATION_MESSAGES.REQUIRED
         });
       } else {
         const paymentDate = new Date(data.paymentDate);
         const today = new Date();
         today.setHours(23, 59, 59, 999);
-        
+
         if (paymentDate > today) {
-          validationErrors.push({ 
-            field: 'paymentDate', 
-            message: VALIDATION_MESSAGES.FUTURE_DATE 
+          validationErrors.push({
+            field: 'paymentDate',
+            message: VALIDATION_MESSAGES.FUTURE_DATE
           });
         }
       }
-      
+
       if (!data.paymentMethod) {
-        validationErrors.push({ 
-          field: 'paymentMethod', 
-          message: VALIDATION_MESSAGES.INVALID_PAYMENT_METHOD 
+        validationErrors.push({
+          field: 'paymentMethod',
+          message: VALIDATION_MESSAGES.INVALID_PAYMENT_METHOD
         });
       }
-      
+
       return {
         isValid: validationErrors.length === 0,
         errors: validationErrors,
@@ -195,15 +196,15 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
             paymentsCount: bill.payments?.length || 0
           }
         });
-        
+
         const response = await updatePayment(bill.id, editingPayment.id, {
           ...paymentData,
           id: editingPayment.id,
         });
         console.log('PaymentTrackingComponent - Raw updatePayment response:', response);
-        
+
         const { payment: updatedPayment, bill: updatedBill } = response;
-        
+
         console.log('PaymentTrackingComponent - Destructured updatePayment response:', {
           payment: updatedPayment,
           bill: {
@@ -231,12 +232,12 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
             paymentsCount: bill.payments?.length || 0
           }
         });
-        
+
         const response = await addPayment(bill.id, paymentData);
         console.log('PaymentTrackingComponent - Raw API response:', response);
-        
+
         const { payment: newPayment, bill: updatedBill } = response;
-        
+
         console.log('PaymentTrackingComponent - Destructured response:', {
           payment: newPayment,
           bill: {
@@ -248,7 +249,7 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
             payments: updatedBill.payments?.map(p => ({ id: p.id, amount: p.amount, date: p.paymentDate })) || []
           }
         });
-        
+
         // Use the updated bill data from the backend (this ensures outstanding amount is correct)
         onBillUpdate(updatedBill);
       }
@@ -295,7 +296,7 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
               });
 
               const updatedBill = await deletePayment(bill.id, payment.id);
-              
+
               console.log('PaymentTrackingComponent - deletePayment response:', {
                 totalAmount: updatedBill.totalAmount,
                 paidAmount: updatedBill.paidAmount,
@@ -343,73 +344,81 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
     return methodObj?.label || method;
   };
 
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+
   const renderPaymentSummary = () => {
     // Calculate amounts dynamically to ensure accuracy
     const calculatedPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
     const calculatedOutstandingAmount = bill.totalAmount - calculatedPaidAmount;
-    
+
     // Determine status based on calculated amounts
     const calculatedStatus = calculateBillStatus(bill.totalAmount, calculatedPaidAmount);
-    
-    // Debug logging to help identify the issue
-    console.log('PaymentTrackingComponent - Bill data:', {
-      totalAmount: bill.totalAmount,
-      storedPaidAmount: bill.paidAmount,
-      calculatedPaidAmount: calculatedPaidAmount,
-      storedOutstandingAmount: bill.outstandingAmount,
-      calculatedOutstandingAmount: calculatedOutstandingAmount,
-      storedStatus: bill.status,
-      calculatedStatus: calculatedStatus,
-      paymentsCount: bill.payments?.length || 0,
-      payments: bill.payments?.map(p => ({ amount: p.amount, date: p.paymentDate })) || []
-    });
 
     // Use calculated values for display to ensure accuracy
     const displayPaidAmount = calculatedPaidAmount;
     const displayOutstandingAmount = calculatedOutstandingAmount;
     const displayStatus = calculatedStatus;
 
-    // Additional debug to verify values being used for display
-    console.log('PaymentTrackingComponent - Display values:', {
-      displayPaidAmount,
-      displayOutstandingAmount,
-      displayStatus,
-      forceUpdateCounter: forceUpdate
-    });
-
     return (
-      <ModernCard style={styles.summaryCard}>
-        <View style={styles.summaryHeader}>
-          <Text style={styles.summaryTitle}>Payment Summary</Text>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(displayStatus) + '20' }]}>
-            <Text style={[styles.statusText, { color: getStatusColor(displayStatus) }]}>
-              {getStatusLabel(displayStatus)}
-            </Text>
+      <TouchableOpacity
+        style={styles.combinedCard}
+        onPress={() => setShowPaymentModal(true)}
+        activeOpacity={0.7}
+      >
+        <View style={styles.cardHeader}>
+          <View style={styles.titleSection}>
+            <Text style={styles.cardTitle}>Payments</Text>
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor(displayStatus) + '20' }]}>
+              <Text style={[styles.statusText, { color: getStatusColor(displayStatus) }]}>
+                {getStatusLabel(displayStatus)}
+              </Text>
+            </View>
           </View>
+          <MaterialIcon name="chevron-right" size={20} color="#007AFF" />
         </View>
-        
-        <View style={styles.summaryContent}>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Total Amount:</Text>
-            <Text style={styles.summaryValue}>₹{bill.totalAmount.toFixed(2)}</Text>
+
+        <View style={styles.cardContent}>
+          <View style={styles.amountList}>
+            <View style={styles.amountRow}>
+              <Text style={styles.amountLabel}>Total Amount</Text>
+              <Text style={styles.amountValue}>₹{bill.totalAmount.toFixed(2)}</Text>
+            </View>
+
+            <View style={styles.amountRow}>
+              <Text style={styles.amountLabel}>Amount Paid</Text>
+              <Text style={[styles.amountValue, { color: '#34C759' }]}>
+                ₹{displayPaidAmount.toFixed(2)}
+              </Text>
+            </View>
+
+            <View style={styles.amountRow}>
+              <Text style={styles.amountLabel}>Total Discount</Text>
+              <Text style={[styles.amountValue, { color: '#FF9500' }]}>
+                ₹{(bill.discount || 0).toFixed(2)}
+              </Text>
+            </View>
+
+            <View style={[styles.amountRow, styles.outstandingRow]}>
+              <Text style={styles.amountLabel}>Outstanding</Text>
+              <Text style={[styles.amountValue, {
+                color: displayOutstandingAmount > 0 ? '#FF3B30' : '#34C759',
+                fontWeight: '700',
+              }]}>
+                ₹{displayOutstandingAmount.toFixed(2)}
+              </Text>
+            </View>
           </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Paid Amount:</Text>
-            <Text style={[styles.summaryValue, { color: '#34C759' }]}>
-              ₹{displayPaidAmount.toFixed(2)}
-            </Text>
-          </View>
-          <View style={[styles.summaryRow, styles.outstandingRow]}>
-            <Text style={styles.summaryLabel}>Outstanding:</Text>
-            <Text style={[styles.summaryValue, { 
-              color: displayOutstandingAmount > 0 ? '#FF3B30' : '#34C759',
-              fontWeight: '700',
-            }]}>
-              ₹{displayOutstandingAmount.toFixed(2)}
-            </Text>
-          </View>
+
+          {bill.payments.length > 0 && (
+            <View style={styles.quickInfo}>
+              <Text style={styles.quickInfoText}>
+                {bill.payments.length} payment{bill.payments.length !== 1 ? 's' : ''} •
+                Last: {new Date(bill.payments[0]?.paymentDate || '').toLocaleDateString()}
+              </Text>
+            </View>
+          )}
         </View>
-      </ModernCard>
+      </TouchableOpacity>
     );
   };
 
@@ -422,17 +431,17 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
           const currentOutstandingAmount = bill.totalAmount - currentPaidAmount;
           return currentOutstandingAmount > 0;
         })() && (
-          <TouchableOpacity
-            style={styles.addPaymentButton}
-            onPress={startAddingPayment}
-            testID="add-payment-button"
-          >
-            <MaterialIcon name="add" size={16} color="#007AFF" />
-            <Text style={styles.addPaymentText}>Add Payment</Text>
-          </TouchableOpacity>
-        )}
+            <TouchableOpacity
+              style={styles.addPaymentButton}
+              onPress={startAddingPayment}
+              testID="add-payment-button"
+            >
+              <MaterialIcon name="add" size={16} color="#007AFF" />
+              <Text style={styles.addPaymentText}>Add Payment</Text>
+            </TouchableOpacity>
+          )}
       </View>
-      
+
       {bill.payments.length === 0 ? (
         <View style={styles.emptyState}>
           <MaterialIcon name="payment" size={48} color="#C7C7CC" />
@@ -460,12 +469,16 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
                     <Text style={styles.paymentMethod}>
                       {getPaymentMethodLabel(payment.paymentMethod)}
                     </Text>
-                    {payment.notes && (
-                      <Text style={styles.paymentNotes}>{payment.notes}</Text>
+
+                    {payment.notes && payment.notes.trim() && (
+                      <View style={styles.notesContainer}>
+                        <MaterialIcon name="note" size={12} color="#666" />
+                        <Text style={styles.paymentNotes}>{payment.notes}</Text>
+                      </View>
                     )}
                   </View>
                 </View>
-                
+
                 {editable && (
                   <View style={styles.paymentActions}>
                     <TouchableOpacity
@@ -508,54 +521,52 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
             <MaterialIcon name="close" size={20} color="#666" />
           </TouchableOpacity>
         </View>
-        
+
         <View style={styles.formContent}>
-          <View style={styles.formRow}>
-            <View style={[styles.formField, { flex: 1, marginRight: 8 }]}>
-              <Text style={styles.fieldLabel}>Amount *</Text>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  errors.amount && styles.inputError,
-                ]}
-                value={formData.amount.toString()}
-                onChangeText={(text) => updateField('amount', parseFloat(text) || 0)}
-                onBlur={() => markFieldAsTouched('amount')}
-                keyboardType="numeric"
-                placeholder="0.00"
-                testID="payment-amount-input"
-              />
-              {errors.amount && touched.amount && (
-                <Text style={styles.errorText}>{errors.amount}</Text>
-              )}
-              <Text style={styles.helperText}>
-                Max: ₹{(() => {
-                  const currentPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
-                  const currentOutstandingAmount = bill.totalAmount - currentPaidAmount;
-                  return currentOutstandingAmount.toFixed(2);
-                })()}
-              </Text>
-            </View>
-            
-            <View style={[styles.formField, { flex: 1, marginLeft: 8 }]}>
-              <Text style={styles.fieldLabel}>Payment Date *</Text>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  errors.paymentDate && styles.inputError,
-                ]}
-                value={formData.paymentDate}
-                onChangeText={(text) => updateField('paymentDate', text)}
-                onBlur={() => markFieldAsTouched('paymentDate')}
-                placeholder="YYYY-MM-DD"
-                testID="payment-date-input"
-              />
-              {errors.paymentDate && touched.paymentDate && (
-                <Text style={styles.errorText}>{errors.paymentDate}</Text>
-              )}
-            </View>
+          <View style={styles.formField}>
+            <Text style={styles.fieldLabel}>Amount *</Text>
+            <TextInput
+              style={[
+                styles.textInput,
+                errors.amount && styles.inputError,
+              ]}
+              value={formData.amount.toString()}
+              onChangeText={(text) => updateField('amount', parseFloat(text) || 0)}
+              onBlur={() => markFieldAsTouched('amount')}
+              keyboardType="numeric"
+              placeholder="0.00"
+              testID="payment-amount-input"
+            />
+            {errors.amount && touched.amount && (
+              <Text style={styles.errorText}>{errors.amount}</Text>
+            )}
+            <Text style={styles.helperText}>
+              Max: ₹{(() => {
+                const currentPaidAmount = bill.payments?.reduce((sum, payment) => sum + payment.amount, 0) || 0;
+                const currentOutstandingAmount = bill.totalAmount - currentPaidAmount;
+                return currentOutstandingAmount.toFixed(2);
+              })()}
+            </Text>
           </View>
-          
+
+          <View style={styles.formField}>
+            <Text style={styles.fieldLabel}>Payment Date *</Text>
+            <TextInput
+              style={[
+                styles.textInput,
+                errors.paymentDate && styles.inputError,
+              ]}
+              value={formData.paymentDate}
+              onChangeText={(text) => updateField('paymentDate', text)}
+              onBlur={() => markFieldAsTouched('paymentDate')}
+              placeholder="YYYY-MM-DD"
+              testID="payment-date-input"
+            />
+            {errors.paymentDate && touched.paymentDate && (
+              <Text style={styles.errorText}>{errors.paymentDate}</Text>
+            )}
+          </View>
+
           <View style={styles.formField}>
             <Text style={styles.fieldLabel}>Payment Method *</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -581,7 +592,7 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
               </View>
             </ScrollView>
           </View>
-          
+
           <View style={styles.formField}>
             <Text style={styles.fieldLabel}>Notes</Text>
             <TextInput
@@ -594,7 +605,7 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
               testID="payment-notes-input"
             />
           </View>
-          
+
           <View style={styles.formActions}>
             <ModernButton
               title="Cancel"
@@ -616,11 +627,36 @@ export const PaymentTrackingComponent: React.FC<PaymentTrackingComponentProps> =
     );
   };
 
+  const renderPaymentModal = () => (
+    <Modal
+      visible={showPaymentModal}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => setShowPaymentModal(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalTitle}>Payment Management</Text>
+          <TouchableOpacity
+            onPress={() => setShowPaymentModal(false)}
+            style={styles.modalCloseButton}
+          >
+            <MaterialIcon name="close" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+          {renderPaymentForm()}
+          {renderPaymentHistory()}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+
   return (
     <View style={styles.container} testID={testID}>
       {renderPaymentSummary()}
-      {renderPaymentForm()}
-      {renderPaymentHistory()}
+      {renderPaymentModal()}
     </View>
   );
 };
@@ -629,6 +665,101 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     gap: 16,
+  },
+  // Combined slim card styles
+  combinedCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E1E1E1',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  titleSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#000',
+  },
+  cardContent: {
+    gap: 12,
+  },
+  amountList: {
+    gap: 8,
+  },
+  amountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+  },
+  outstandingRow: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E1E1E1',
+    marginTop: 4,
+  },
+  amountLabel: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '500',
+  },
+  amountValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#000',
+  },
+  quickInfo: {
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  quickInfoText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#FFF',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E1E1E1',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#000',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
   summaryCard: {
     padding: 16,
@@ -680,25 +811,24 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   historyTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#000',
+    marginBottom: 12,
   },
   addPaymentButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0F8FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#007AFF',
+    alignSelf: 'flex-start',
   },
   addPaymentText: {
     fontSize: 14,
@@ -764,6 +894,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     fontStyle: 'italic',
+  },
+  discountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 2,
+  },
+  discountText: {
+    fontSize: 12,
+    color: '#FF9500',
+    fontWeight: '500',
+  },
+  notesContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    marginTop: 2,
   },
   paymentActions: {
     flexDirection: 'row',

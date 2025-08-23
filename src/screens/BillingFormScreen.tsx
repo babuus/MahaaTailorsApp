@@ -89,6 +89,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
       deliveryDate: bill?.deliveryDate || '',
       items: [],
       receivedItems: [],
+      discount: bill?.discount || 0,
       notes: bill?.notes || '',
     },
     validator: (data) => {
@@ -184,11 +185,23 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
             setSelectedCustomer(customerData);
             setDeliveryStatus(freshBill.deliveryStatus || 'pending');
             setCurrentBill({ ...freshBill, customer: customerData });
+            
+            // Update form fields with fresh bill data
+            updateField('discount', freshBill.discount || 0);
+            updateField('notes', freshBill.notes || '');
+            updateField('billingDate', freshBill.billingDate || '');
+            updateField('deliveryDate', freshBill.deliveryDate || '');
           } catch (error) {
             console.warn('Failed to fetch fresh bill data, using passed data:', error);
             // Fallback to passed bill data
             setBillItems(bill.items || []);
             setReceivedItems(bill.receivedItems || []);
+            
+            // Update form fields with fallback bill data
+            updateField('discount', bill.discount || 0);
+            updateField('notes', bill.notes || '');
+            updateField('billingDate', bill.billingDate || '');
+            updateField('deliveryDate', bill.deliveryDate || '');
 
             // Try to fetch customer data even in fallback mode
             if (bill.customerId) {
@@ -456,7 +469,8 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
         unitPrice: Number(item.unitPrice) || 0, // Keep as number
         configItemId: item.configItemId || undefined,
         materialSource: item.materialSource || 'customer',
-        deliveryStatus: item.deliveryStatus || 'pending'
+        deliveryStatus: item.deliveryStatus || 'pending',
+        internalNotes: item.internalNotes || '' // Include internal notes
       }));
 
       const processedReceivedItems = receivedItems.map(item => ({
@@ -475,6 +489,7 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
         items: processedItems,
         receivedItems: processedReceivedItems,
         payments: mode === 'add' ? payments.filter(p => p.amount > 0) : undefined, // Only include payments for create mode
+        discount: formData.discount || 0,
         notes: formData.notes || '',
       };
 
@@ -755,6 +770,28 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
             </View>
           </ModernCard>
 
+          {/* Bill Discount */}
+          <ModernCard style={styles.section}>
+            <Text style={styles.sectionTitle}>Bill Discount</Text>
+            <View style={styles.discountSection}>
+              <Text style={styles.fieldLabel}>Discount Amount (₹)</Text>
+              <TextInput
+                style={styles.discountInput}
+                value={(formData.discount || 0).toString()}
+                onChangeText={(text) => {
+                  const discountValue = parseFloat(text) || 0;
+                  updateField('discount', discountValue);
+                }}
+                keyboardType="numeric"
+                placeholder="Enter discount amount"
+                testID="bill-discount-input"
+              />
+              <Text style={styles.helperText}>
+                Enter the total discount amount for this bill
+              </Text>
+            </View>
+          </ModernCard>
+
           {/* Billing Items */}
           <ModernCard style={[
             styles.section,
@@ -933,10 +970,35 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
               <Text style={styles.errorText}>{errors.items}</Text>
             )}
 
+            <View style={styles.discountSection}>
+              <Text style={styles.fieldLabel}>Bill Discount (₹)</Text>
+              <TextInput
+                style={styles.discountInput}
+                value={(formData.discount || 0).toString()}
+                onChangeText={(text) => {
+                  const discountValue = parseFloat(text) || 0;
+                  updateField('discount', discountValue);
+                }}
+                keyboardType="numeric"
+                placeholder="Enter discount amount"
+                testID="bill-discount-input"
+              />
+              <Text style={styles.helperText}>
+                Enter the total discount amount for this bill
+              </Text>
+            </View>
+
             <View style={styles.totalSection}>
               <Text style={styles.totalLabel}>Total Amount:</Text>
               <Text style={styles.totalAmount}>₹{totalAmount.toFixed(2)}</Text>
             </View>
+            
+            {formData.discount && formData.discount > 0 && (
+              <View style={styles.finalTotalSection}>
+                <Text style={styles.finalTotalLabel}>Final Amount (After Discount):</Text>
+                <Text style={styles.finalTotalAmount}>₹{(totalAmount - (formData.discount || 0)).toFixed(2)}</Text>
+              </View>
+            )}
           </ModernCard>
 
           {/* Received Items */}
@@ -1057,6 +1119,22 @@ export const BillingFormScreen: React.FC<BillingFormScreenProps> = ({
                     <Text style={styles.summaryLabel}>Total Amount:</Text>
                     <Text style={styles.summaryValue}>₹{totalAmount.toFixed(2)}</Text>
                   </View>
+                  {formData.discount && formData.discount > 0 && (
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Discount:</Text>
+                      <Text style={[styles.summaryValue, { color: '#FF9500' }]}>
+                        -₹{formData.discount.toFixed(2)}
+                      </Text>
+                    </View>
+                  )}
+                  {formData.discount && formData.discount > 0 && (
+                    <View style={styles.summaryRow}>
+                      <Text style={styles.summaryLabel}>Final Amount:</Text>
+                      <Text style={[styles.summaryValue, { color: '#007AFF', fontWeight: '700' }]}>
+                        ₹{(totalAmount - formData.discount).toFixed(2)}
+                      </Text>
+                    </View>
+                  )}
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Paid Amount:</Text>
                     <Text style={[styles.summaryValue, { color: '#34C759' }]}>
@@ -1491,6 +1569,19 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     borderColor: '#FF3B30',
     borderWidth: 2,
   },
+  discountSection: {
+    marginBottom: 16,
+  },
+  discountInput: {
+    fontSize: 16,
+    color: isDarkMode ? '#FFFFFF' : '#000000',
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#3A3A3C' : '#E1E1E1',
+    borderRadius: 8,
+    padding: 12,
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFFFFF',
+    marginTop: 8,
+  },
   totalSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1508,6 +1599,31 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: '#007AFF',
+  },
+  finalTotalSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    marginTop: 8,
+    borderTopWidth: 2,
+    borderTopColor: '#007AFF',
+  },
+  finalTotalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF9500',
+  },
+  finalTotalAmount: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#FF9500',
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    fontStyle: 'italic',
   },
   notesInput: {
     fontSize: 14,

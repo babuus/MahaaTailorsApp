@@ -157,6 +157,46 @@ Resources:
           Projection:
             ProjectionType: ALL
 
+  # S3 Bucket for Bill Item Reference Images
+  BillItemImagesS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "mahaatailors-assets-${Environment}"
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            MaxAge: 3000
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerPreferred
+
+  # S3 Bucket Policy for Bill Item Images
+  BillItemImagesS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BillItemImagesS3Bucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "${BillItemImagesS3Bucket.Arn}/*"
+
   # Note: Using frontend bucket for mobile app updates instead of separate bucket
   # The UPDATES_BUCKET environment variable will be set to the frontend bucket name
 
@@ -396,6 +436,19 @@ Resources:
             TableName: !Ref ReceivedItemTemplatesTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BillItemsTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+                - s3:GetObject
+                - s3:DeleteObject
+                - s3:GeneratePresignedUrl
+              Resource: 
+                - !Sub "${BillItemImagesS3Bucket.Arn}/*"
+            - Effect: Allow
+              Action:
+                - s3:ListBucket
+              Resource: !GetAtt BillItemImagesS3Bucket.Arn
       Environment:
         Variables:
           BILLS_TABLE_NAME: !Ref BillsTable
@@ -403,6 +456,7 @@ Resources:
           BILLING_CONFIG_ITEMS_TABLE_NAME: !Ref BillingConfigItemsTable
           RECEIVED_ITEM_TEMPLATES_TABLE_NAME: !Ref ReceivedItemTemplatesTable
           BILL_ITEMS_TABLE_NAME: !Ref BillItemsTable
+          IMAGES_BUCKET_NAME: !Ref BillItemImagesS3Bucket
       Events:
         GetBills:
           Type: Api
@@ -608,6 +662,38 @@ Resources:
           Properties:
             RestApiId: !Ref ApiGatewayApi
             Path: /bill-items/by-bill/{billId}
+            Method: options
+        
+        # Image Upload Endpoints
+        UploadBillItemImage:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/items/{itemId}/images
+            Method: post
+        GetBillItemImages:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/items/{itemId}/images
+            Method: get
+        DeleteBillItemImage:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/items/{itemId}/images/{imageId}
+            Method: delete
+        BillItemImagesOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/items/{itemId}/images
+            Method: options
+        BillItemImageIdOptions:
+          Type: Api
+          Properties:
+            RestApiId: !Ref ApiGatewayApi
+            Path: /bills/{id}/items/{itemId}/images/{imageId}
             Method: options
 
   AppUpdatesLambda:

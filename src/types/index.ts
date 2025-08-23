@@ -101,6 +101,7 @@ export interface Bill {
   status: BillStatus;
   deliveryStatus: DeliveryStatus;
   payments: Payment[];
+  discount?: number;
   notes?: string;
   createdAt: string;
   updatedAt: string;
@@ -118,6 +119,8 @@ export interface BillItem {
   materialSource?: 'customer' | 'business'; // Who provides the materials
   deliveryStatus?: DeliveryStatus; // Individual item delivery status
   statusChangeDate?: string; // Date when status was last changed
+  referenceImages?: string[]; // Array of S3 image URLs
+  internalNotes?: string; // Internal notes for staff use only (optional)
 }
 
 export interface ReceivedItem {
@@ -171,6 +174,7 @@ export interface BillFormData {
   deliveryStatus?: DeliveryStatus;
   items: Omit<BillItem, 'id' | 'totalPrice'>[];
   receivedItems: Omit<ReceivedItem, 'id'>[];
+  discount?: number;
   notes?: string;
 }
 
@@ -289,17 +293,17 @@ export interface PaginatedResponse<T> {
 }
 
 // Specific API response types
-export interface CustomerListResponse extends ApiResponse<PaginatedResponse<Customer>> {}
-export interface CustomerResponse extends ApiResponse<Customer> {}
-export interface MeasurementConfigListResponse extends ApiResponse<PaginatedResponse<MeasurementConfig>> {}
-export interface MeasurementConfigResponse extends ApiResponse<MeasurementConfig> {}
-export interface BillListResponse extends ApiResponse<PaginatedResponse<Bill>> {}
-export interface BillResponse extends ApiResponse<Bill> {}
-export interface BillingConfigItemListResponse extends ApiResponse<BillingConfigItem[]> {}
-export interface BillingConfigItemResponse extends ApiResponse<BillingConfigItem> {}
-export interface ReceivedItemTemplateListResponse extends ApiResponse<ReceivedItemTemplate[]> {}
-export interface ReceivedItemTemplateResponse extends ApiResponse<ReceivedItemTemplate> {}
-export interface PaymentResponse extends ApiResponse<Payment> {}
+export interface CustomerListResponse extends ApiResponse<PaginatedResponse<Customer>> { }
+export interface CustomerResponse extends ApiResponse<Customer> { }
+export interface MeasurementConfigListResponse extends ApiResponse<PaginatedResponse<MeasurementConfig>> { }
+export interface MeasurementConfigResponse extends ApiResponse<MeasurementConfig> { }
+export interface BillListResponse extends ApiResponse<PaginatedResponse<Bill>> { }
+export interface BillResponse extends ApiResponse<Bill> { }
+export interface BillingConfigItemListResponse extends ApiResponse<BillingConfigItem[]> { }
+export interface BillingConfigItemResponse extends ApiResponse<BillingConfigItem> { }
+export interface ReceivedItemTemplateListResponse extends ApiResponse<ReceivedItemTemplate[]> { }
+export interface ReceivedItemTemplateResponse extends ApiResponse<ReceivedItemTemplate> { }
+export interface PaymentResponse extends ApiResponse<Payment> { }
 
 // API error response
 export interface ApiErrorResponse {
@@ -313,7 +317,7 @@ export interface ApiErrorResponse {
 export interface CheckCustomerExistsResponse extends ApiResponse<{
   exists: boolean;
   customer?: Customer;
-}> {}
+}> { }
 
 // ============================================================================
 // ERROR HANDLING TYPES

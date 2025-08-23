@@ -13,6 +13,8 @@ export { default as MeasurementConfigListItem } from './MeasurementConfigListIte
 export { CustomerSearchComponent } from './CustomerSearchComponent';
 export { ReceivedItemsComponent } from './ReceivedItemsComponent';
 export { PaymentTrackingComponent } from './PaymentTrackingComponent';
+export { default as BillItemImageGallery } from './BillItemImageGallery';
+export { default as EditableImagePicker } from './EditableImagePicker';
 
 // Icon components
 export { default as MaterialIcon } from './MaterialIcon';

@@ -1,15 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Modal,
-  ScrollView,
   Dimensions,
 } from 'react-native';
 import { COLORS, SPACING } from '../constants';
 import { useThemeContext } from '../contexts/ThemeContext';
+import MaterialIcon from './MaterialIcon';
 
 interface CustomDatePickerProps {
   visible: boolean;
@@ -18,6 +18,8 @@ interface CustomDatePickerProps {
   onCancel: () => void;
   maximumDate?: Date;
   minimumDate?: Date;
+  deliveryCounts?: { [dateString: string]: number }; // Format: "2024-01-15": 3
+  overdueDeliveries?: { [dateString: string]: number }; // Format: "2024-01-15": 2 (incomplete deliveries)
 }
 
 const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
@@ -27,33 +29,15 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   onCancel,
   maximumDate,
   minimumDate,
+  deliveryCounts = {},
+  overdueDeliveries = {},
 }) => {
   const { isDarkMode } = useThemeContext();
   const currentDate = value && value instanceof Date ? value : new Date();
   
-  const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth());
-  const [selectedDay, setSelectedDay] = useState(currentDate.getDate());
-
-  const overlayStyle = {
-    backgroundColor: isDarkMode ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
-  };
-
-  const containerStyle = {
-    backgroundColor: isDarkMode ? '#333333' : '#FFFFFF',
-  };
-
-  const textStyle = {
-    color: isDarkMode ? COLORS.LIGHT : COLORS.DARK,
-  };
-
-  const subtextStyle = {
-    color: isDarkMode ? '#B0B0B0' : '#666666',
-  };
-
-  // Generate years (from 1900 to current year)
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: currentYear - 1900 + 1 }, (_, i) => 1900 + i).reverse();
+  const [currentMonth, setCurrentMonth] = useState(currentDate.getMonth());
+  const [currentYear, setCurrentYear] = useState(currentDate.getFullYear());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(currentDate);
 
   // Month names
   const months = [
@@ -61,39 +45,92 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     'July', 'August', 'September', 'October', 'November', 'December'
   ];
 
-  // Get days in month
-  const getDaysInMonth = (year: number, month: number) => {
-    return new Date(year, month + 1, 0).getDate();
+  // Day names for calendar header
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  // Get calendar data for current month
+  const getCalendarData = useCallback(() => {
+    const firstDay = new Date(currentYear, currentMonth, 1);
+    const lastDay = new Date(currentYear, currentMonth + 1, 0);
+    const startDate = new Date(firstDay);
+    startDate.setDate(startDate.getDate() - firstDay.getDay()); // Start from Sunday
+
+    const calendar = [];
+    const current = new Date(startDate);
+
+    // Generate 6 weeks (42 days) to fill calendar grid
+    for (let week = 0; week < 6; week++) {
+      const weekDays = [];
+      for (let day = 0; day < 7; day++) {
+        const date = new Date(current);
+        const dateString = date.toISOString().split('T')[0];
+        const isCurrentMonth = date.getMonth() === currentMonth;
+        const isToday = date.toDateString() === new Date().toDateString();
+        const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
+        const isDisabled = (minimumDate && date < minimumDate) || (maximumDate && date > maximumDate);
+        const deliveryCount = deliveryCounts[dateString] || 0;
+        const overdueCount = overdueDeliveries[dateString] || 0;
+        const isPastDate = date < new Date(new Date().setHours(0, 0, 0, 0));
+        const hasOverdueDeliveries = isPastDate && overdueCount > 0;
+
+        weekDays.push({
+          date,
+          day: date.getDate(),
+          isCurrentMonth,
+          isToday,
+          isSelected,
+          isDisabled,
+          deliveryCount,
+          overdueCount,
+          hasOverdueDeliveries,
+          dateString,
+        });
+
+        current.setDate(current.getDate() + 1);
+      }
+      calendar.push(weekDays);
+    }
+
+    return calendar;
+  }, [currentYear, currentMonth, selectedDate, minimumDate, maximumDate, deliveryCounts]);
+
+  const handleDateSelect = (date: Date) => {
+    if ((minimumDate && date < minimumDate) || (maximumDate && date > maximumDate)) {
+      return;
+    }
+    setSelectedDate(date);
   };
 
-  // Generate days for selected month/year
-  const daysInMonth = getDaysInMonth(selectedYear, selectedMonth);
-  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-
-  // Check if date is valid based on min/max constraints
-  const isDateValid = useCallback((year: number, month: number, day: number) => {
-    const date = new Date(year, month, day);
-    
-    if (maximumDate && date > maximumDate) return false;
-    if (minimumDate && date < minimumDate) return false;
-    
-    return true;
-  }, [maximumDate, minimumDate]);
-
   const handleConfirm = () => {
-    if (isDateValid(selectedYear, selectedMonth, selectedDay)) {
-      const newDate = new Date(selectedYear, selectedMonth, selectedDay);
-      onDateChange(newDate);
+    if (selectedDate) {
+      onDateChange(selectedDate);
     }
   };
 
   const handleCancel = () => {
-    // Reset to original values
-    setSelectedYear(currentDate.getFullYear());
-    setSelectedMonth(currentDate.getMonth());
-    setSelectedDay(currentDate.getDate());
+    setSelectedDate(currentDate);
     onCancel();
   };
+
+  const navigateMonth = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      if (currentMonth === 0) {
+        setCurrentMonth(11);
+        setCurrentYear(currentYear - 1);
+      } else {
+        setCurrentMonth(currentMonth - 1);
+      }
+    } else {
+      if (currentMonth === 11) {
+        setCurrentMonth(0);
+        setCurrentYear(currentYear + 1);
+      } else {
+        setCurrentMonth(currentMonth + 1);
+      }
+    }
+  };
+
+  const calendar = getCalendarData();
 
   return (
     <Modal
@@ -102,122 +139,146 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
       animationType="fade"
       onRequestClose={handleCancel}
     >
-      <View style={[styles.overlay, overlayStyle]}>
-        <View style={[styles.container, containerStyle]}>
+      <View style={styles.overlay}>
+        <View style={[styles.container, { backgroundColor: isDarkMode ? '#1C1C1E' : '#FFFFFF' }]}>
+          {/* Header with Month Navigation */}
           <View style={styles.header}>
-            <Text style={[styles.title, textStyle]}>Select Date</Text>
+            <TouchableOpacity
+              style={styles.navButton}
+              onPress={() => navigateMonth('prev')}
+            >
+              <MaterialIcon name="chevron-left" size={24} color={isDarkMode ? '#FFF' : '#000'} />
+            </TouchableOpacity>
+            
+            <Text style={[styles.monthTitle, { color: isDarkMode ? '#FFF' : '#000' }]}>
+              {months[currentMonth]} {currentYear}
+            </Text>
+            
+            <TouchableOpacity
+              style={styles.navButton}
+              onPress={() => navigateMonth('next')}
+            >
+              <MaterialIcon name="chevron-right" size={24} color={isDarkMode ? '#FFF' : '#000'} />
+            </TouchableOpacity>
           </View>
 
-          <View style={styles.pickerContainer}>
-            {/* Year Picker */}
-            <View style={styles.pickerColumn}>
-              <Text style={[styles.columnTitle, textStyle]}>Year</Text>
-              <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-                {years.map((year) => (
+          {/* Calendar */}
+          <View style={styles.calendar}>
+            {/* Day Headers */}
+            <View style={styles.dayHeaders}>
+              {dayNames.map((dayName) => (
+                <View key={dayName} style={styles.dayHeader}>
+                  <Text style={[styles.dayHeaderText, { color: isDarkMode ? '#999' : '#666' }]}>
+                    {dayName}
+                  </Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Calendar Grid */}
+            {calendar.map((week, weekIndex) => (
+              <View key={weekIndex} style={styles.week}>
+                {week.map((dayData, dayIndex) => (
                   <TouchableOpacity
-                    key={year}
+                    key={dayIndex}
                     style={[
-                      styles.pickerItem,
-                      selectedYear === year && styles.selectedItem,
+                      styles.dayCell,
+                      !dayData.isCurrentMonth && styles.otherMonthDay,
+                      dayData.isToday && styles.todayCell,
+                      dayData.isSelected && styles.selectedCell,
+                      dayData.isDisabled && styles.disabledCell,
                     ]}
-                    onPress={() => {
-                      setSelectedYear(year);
-                      // Adjust day if it doesn't exist in the new year/month combination
-                      const maxDay = getDaysInMonth(year, selectedMonth);
-                      if (selectedDay > maxDay) {
-                        setSelectedDay(maxDay);
-                      }
-                    }}
+                    onPress={() => handleDateSelect(dayData.date)}
+                    disabled={dayData.isDisabled}
                   >
                     <Text
                       style={[
-                        styles.pickerItemText,
-                        textStyle,
-                        selectedYear === year && styles.selectedItemText,
+                        styles.dayText,
+                        { color: isDarkMode ? '#FFF' : '#000' },
+                        !dayData.isCurrentMonth && styles.otherMonthText,
+                        dayData.isToday && styles.todayText,
+                        dayData.isSelected && styles.selectedText,
+                        dayData.isDisabled && styles.disabledText,
                       ]}
                     >
-                      {year}
+                      {dayData.day}
                     </Text>
+                    
+                    {/* Delivery Count Badge */}
+                    {dayData.deliveryCount > 0 && (
+                      <View style={[
+                        styles.deliveryBadge,
+                        dayData.hasOverdueDeliveries && styles.overdueBadge
+                      ]}>
+                        <Text style={styles.deliveryCount}>
+                          {dayData.deliveryCount}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* Overdue Indicator for past dates with incomplete deliveries */}
+                    {dayData.hasOverdueDeliveries && dayData.overdueCount > 0 && (
+                      <View style={styles.overdueIndicator}>
+                        <Text style={styles.overdueCount}>
+                          !{dayData.overdueCount}
+                        </Text>
+                      </View>
+                    )}
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
-            </View>
-
-            {/* Month Picker */}
-            <View style={styles.pickerColumn}>
-              <Text style={[styles.columnTitle, textStyle]}>Month</Text>
-              <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-                {months.map((month, index) => (
-                  <TouchableOpacity
-                    key={month}
-                    style={[
-                      styles.pickerItem,
-                      selectedMonth === index && styles.selectedItem,
-                    ]}
-                    onPress={() => {
-                      setSelectedMonth(index);
-                      // Adjust day if it doesn't exist in the new month
-                      const maxDay = getDaysInMonth(selectedYear, index);
-                      if (selectedDay > maxDay) {
-                        setSelectedDay(maxDay);
-                      }
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.pickerItemText,
-                        textStyle,
-                        selectedMonth === index && styles.selectedItemText,
-                      ]}
-                    >
-                      {month}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Day Picker */}
-            <View style={styles.pickerColumn}>
-              <Text style={[styles.columnTitle, textStyle]}>Day</Text>
-              <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-                {days.map((day) => {
-                  const isValid = isDateValid(selectedYear, selectedMonth, day);
-                  return (
-                    <TouchableOpacity
-                      key={day}
-                      style={[
-                        styles.pickerItem,
-                        selectedDay === day && styles.selectedItem,
-                        !isValid && styles.disabledItem,
-                      ]}
-                      onPress={() => isValid && setSelectedDay(day)}
-                      disabled={!isValid}
-                    >
-                      <Text
-                        style={[
-                          styles.pickerItemText,
-                          textStyle,
-                          selectedDay === day && styles.selectedItemText,
-                          !isValid && styles.disabledItemText,
-                        ]}
-                      >
-                        {day}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
+              </View>
+            ))}
           </View>
 
           {/* Selected Date Preview */}
-          <View style={styles.previewContainer}>
-            <Text style={[styles.previewLabel, subtextStyle]}>Selected Date:</Text>
-            <Text style={[styles.previewDate, textStyle]}>
-              {months[selectedMonth]} {selectedDay}, {selectedYear}
-            </Text>
-          </View>
+          {selectedDate && (
+            <View style={styles.previewContainer}>
+              <Text style={[styles.previewLabel, { color: isDarkMode ? '#999' : '#666' }]}>
+                Selected Date:
+              </Text>
+              <Text style={[styles.previewDate, { color: isDarkMode ? '#FFF' : '#000' }]}>
+                {selectedDate.toLocaleDateString('en-US', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })}
+              </Text>
+              
+              {/* Delivery Information */}
+              {(() => {
+                const dateString = selectedDate.toISOString().split('T')[0];
+                const totalDeliveries = deliveryCounts[dateString] || 0;
+                const overdueCount = overdueDeliveries[dateString] || 0;
+                const isPastDate = selectedDate < new Date(new Date().setHours(0, 0, 0, 0));
+                
+                if (totalDeliveries > 0) {
+                  return (
+                    <View style={styles.deliveryInfoContainer}>
+                      <Text style={[styles.deliveryInfo, { color: isDarkMode ? '#FF9500' : '#FF8C00' }]}>
+                        {totalDeliveries} delivery(s) scheduled
+                      </Text>
+                      
+                      {/* Show overdue information for past dates */}
+                      {isPastDate && overdueCount > 0 && (
+                        <Text style={[styles.overdueInfo, { color: '#FF3B30' }]}>
+                          ⚠️ {overdueCount} overdue delivery(s)
+                        </Text>
+                      )}
+                      
+                      {/* Show completed deliveries for past dates */}
+                      {isPastDate && overdueCount < totalDeliveries && (
+                        <Text style={[styles.completedInfo, { color: '#34C759' }]}>
+                          ✅ {totalDeliveries - overdueCount} completed
+                        </Text>
+                      )}
+                    </View>
+                  );
+                }
+                return null;
+              })()}
+            </View>
+          )}
 
           {/* Action Buttons */}
           <View style={styles.actions}>
@@ -231,8 +292,11 @@ const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
             <TouchableOpacity
               style={[styles.button, styles.confirmButton]}
               onPress={handleConfirm}
+              disabled={!selectedDate}
             >
-              <Text style={styles.confirmButtonText}>Confirm</Text>
+              <Text style={[styles.confirmButtonText, !selectedDate && { opacity: 0.5 }]}>
+                Confirm
+              </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -248,12 +312,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     padding: SPACING.LG,
   },
   container: {
-    width: Math.min(screenWidth * 0.9, 400),
-    maxHeight: screenHeight * 0.8,
-    borderRadius: 12,
+    width: Math.min(screenWidth * 0.95, 380),
+    borderRadius: 16,
     elevation: 8,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -261,55 +325,117 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     padding: SPACING.LG,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
-    alignItems: 'center',
   },
-  title: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  navButton: {
+    padding: SPACING.SM,
+    borderRadius: 8,
   },
-  pickerContainer: {
-    flexDirection: 'row',
-    height: 250,
+  monthTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    flex: 1,
+    textAlign: 'center',
+  },
+  calendar: {
     padding: SPACING.MD,
   },
-  pickerColumn: {
-    flex: 1,
-    marginHorizontal: SPACING.XS,
-  },
-  columnTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+  dayHeaders: {
+    flexDirection: 'row',
     marginBottom: SPACING.SM,
   },
-  scrollView: {
+  dayHeader: {
     flex: 1,
-  },
-  pickerItem: {
-    paddingVertical: SPACING.SM,
-    paddingHorizontal: SPACING.XS,
     alignItems: 'center',
-    borderRadius: 6,
-    marginVertical: 1,
+    paddingVertical: SPACING.SM,
   },
-  selectedItem: {
-    backgroundColor: COLORS.PRIMARY,
+  dayHeaderText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
-  disabledItem: {
+  week: {
+    flexDirection: 'row',
+  },
+  dayCell: {
+    flex: 1,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    margin: 1,
+    borderRadius: 8,
+    position: 'relative',
+  },
+  dayText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  otherMonthDay: {
     opacity: 0.3,
   },
-  pickerItemText: {
-    fontSize: 16,
+  otherMonthText: {
+    opacity: 0.3,
   },
-  selectedItemText: {
+  todayCell: {
+    backgroundColor: '#E3F2FD',
+    borderWidth: 1,
+    borderColor: '#2196F3',
+  },
+  todayText: {
+    color: '#2196F3',
+    fontWeight: '600',
+  },
+  selectedCell: {
+    backgroundColor: COLORS.PRIMARY,
+  },
+  selectedText: {
     color: '#FFFFFF',
     fontWeight: '600',
   },
-  disabledItemText: {
+  disabledCell: {
+    opacity: 0.3,
+  },
+  disabledText: {
     color: '#CCCCCC',
+  },
+  deliveryBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#FF9500',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deliveryCount: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  overdueBadge: {
+    backgroundColor: '#FF3B30', // Red background for overdue deliveries
+  },
+  overdueIndicator: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    backgroundColor: '#FF3B30',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  overdueCount: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '700',
   },
   previewContainer: {
     padding: SPACING.MD,
@@ -324,6 +450,25 @@ const styles = StyleSheet.create({
   previewDate: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  deliveryInfo: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: SPACING.XS,
+  },
+  deliveryInfoContainer: {
+    alignItems: 'center',
+    marginTop: SPACING.XS,
+  },
+  overdueInfo: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: SPACING.XS,
+  },
+  completedInfo: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginTop: SPACING.XS,
   },
   actions: {
     flexDirection: 'row',

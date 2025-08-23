@@ -31,6 +31,8 @@ import MeasurementConfigScreen from '../screens/MeasurementConfigScreen';
 import MeasurementConfigFormScreen from '../screens/MeasurementConfigFormScreen';
 import { BillingScreen } from '../screens/BillingScreen';
 import { BillingFormScreen } from '../screens/BillingFormScreen';
+import CreateBillWizardScreen from '../screens/CreateBillWizardScreen';
+import EditBillWizardScreen from '../screens/EditBillWizardScreen';
 import BillDetailScreen from '../screens/BillDetailScreen';
 import { BillPrintScreen } from '../screens/BillPrintScreen';
 import { ReceivedItemsScreen } from '../screens/ReceivedItemsScreen';
@@ -44,7 +46,7 @@ import SettingsScreen from '../screens/SettingsScreen';
 
 
 
-type Screen = 'Dashboard' | 'CustomerManagement' | 'CustomerDetail' | 'CustomerForm' | 'MeasurementConfig' | 'MeasurementConfigForm' | 'Billing' | 'BillingForm' | 'BillDetail' | 'BillPrint' | 'ReceivedItems' | 'ItemsManagement' | 'BillingItems' | 'BillingConfig' | 'BillingConfigItemForm' | 'ReceivedItemTemplateForm' | 'Calendar' | 'Settings';
+type Screen = 'Dashboard' | 'CustomerManagement' | 'CustomerDetail' | 'CustomerForm' | 'MeasurementConfig' | 'MeasurementConfigForm' | 'Billing' | 'BillingForm' | 'CreateBillWizard' | 'EditBillWizard' | 'BillDetail' | 'BillPrint' | 'ReceivedItems' | 'ItemsManagement' | 'BillingItems' | 'BillingConfig' | 'BillingConfigItemForm' | 'ReceivedItemTemplateForm' | 'Calendar' | 'Settings';
 
 const { width: screenWidth } = Dimensions.get('window');
 const DRAWER_WIDTH = screenWidth * 0.7; // Reduced width to add space on the right
@@ -357,6 +359,10 @@ const DrawerNavigator: React.FC = () => {
         return <BillingScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'BillingForm':
         return <BillingFormScreen navigation={mockNavigation as any} route={mockRoute as any} />;
+      case 'CreateBillWizard':
+        return <CreateBillWizardScreen navigation={mockNavigation as any} route={mockRoute as any} />;
+      case 'EditBillWizard':
+        return <EditBillWizardScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'BillDetail':
         return <BillDetailScreen navigation={mockNavigation as any} route={mockRoute as any} />;
       case 'BillPrint':
@@ -402,6 +408,10 @@ const DrawerNavigator: React.FC = () => {
         return 'Billing Items';
       case 'BillingForm':
         return currentNavigation.params?.mode === 'edit' ? 'Edit Bill' : 'Create Bill';
+      case 'CreateBillWizard':
+        return 'Create Bill';
+      case 'EditBillWizard':
+        return `Edit Bill ${currentNavigation.params?.bill?.billNumber || ''}`;
       case 'BillDetail':
         return currentNavigation.params?.bill?.billNumber ? `Bill ${currentNavigation.params.bill.billNumber}` : 'Bill Details';
       case 'BillPrint':
@@ -445,6 +455,10 @@ const DrawerNavigator: React.FC = () => {
         return 'Billing Items';
       case 'BillingForm':
         return params?.mode === 'edit' ? 'Edit Bill' : 'Create Bill';
+      case 'CreateBillWizard':
+        return 'Create Bill';
+      case 'EditBillWizard':
+        return `Edit Bill ${params?.bill?.billNumber || ''}`;
       case 'BillDetail':
         return params?.bill?.billNumber ? `Bill ${params.bill.billNumber}` : 'Bill Details';
       case 'BillPrint':
@@ -481,6 +495,8 @@ const DrawerNavigator: React.FC = () => {
            currentScreen === 'CustomerForm' || 
            currentScreen === 'MeasurementConfigForm' ||
            currentScreen === 'BillingForm' ||
+           currentScreen === 'CreateBillWizard' ||
+           currentScreen === 'EditBillWizard' ||
            currentScreen === 'BillDetail' ||
            currentScreen === 'BillPrint' ||
            currentScreen === 'ReceivedItems' ||

@@ -40,7 +40,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
 }) => {
   const { billId, bill: initialBill } = route.params;
   const { isDarkMode } = useThemeContext();
-  
+
   const [bill, setBill] = useState<Bill | null>(initialBill || null);
   const [isLoading, setIsLoading] = useState(!initialBill);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -49,10 +49,25 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
 
   const loadBill = useCallback(async () => {
     if (!billId) return;
-    
+
     setIsLoading(true);
     try {
       const billData = await getBillById(billId);
+
+      // Debug: Log internal notes data
+      console.log('ItemsManagementScreen - Loaded bill data:', {
+        billId: billData.id,
+        itemsCount: billData.items?.length || 0,
+        itemsWithInternalNotes: billData.items?.filter(item => item.internalNotes).length || 0,
+        firstItemInternalNotes: billData.items?.[0]?.internalNotes,
+        allItemsInternalNotes: billData.items?.map(item => ({
+          id: item.id,
+          name: item.name,
+          hasInternalNotes: !!item.internalNotes,
+          internalNotes: item.internalNotes
+        }))
+      });
+
       setBill(billData);
       setHasChanges(false);
     } catch (error) {
@@ -92,33 +107,33 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
 
   const calculateOverallDeliveryStatus = useCallback((items: BillItem[]): DeliveryStatus => {
     if (items.length === 0) return 'pending';
-    
+
     // Filter out cancelled items for overall status calculation
     const activeItems = items.filter(item => (item.deliveryStatus || 'pending') !== 'cancelled');
-    
+
     // If all items are cancelled, overall status is cancelled
     if (activeItems.length === 0) {
       return 'cancelled';
     }
-    
+
     const activeItemStatuses = activeItems.map(item => item.deliveryStatus || 'pending');
-    
+
     // If all active items are delivered, overall status is delivered
     if (activeItemStatuses.every(status => status === 'delivered')) {
       return 'delivered';
     }
-    
+
     // If any active item is ready for delivery and none are pending/in_progress, overall is ready
-    if (activeItemStatuses.some(status => status === 'ready_for_delivery') && 
-        !activeItemStatuses.some(status => status === 'pending' || status === 'in_progress')) {
+    if (activeItemStatuses.some(status => status === 'ready_for_delivery') &&
+      !activeItemStatuses.some(status => status === 'pending' || status === 'in_progress')) {
       return 'ready_for_delivery';
     }
-    
+
     // If any active item is in progress, overall status is in progress
     if (activeItemStatuses.some(status => status === 'in_progress')) {
       return 'in_progress';
     }
-    
+
     // Default to pending
     return 'pending';
   }, []);
@@ -128,7 +143,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
 
     const updatedItems = [...bill.items];
     const currentItem = updatedItems[itemIndex];
-    
+
     // Only update if status actually changed
     if (currentItem.deliveryStatus !== newStatus) {
       updatedItems[itemIndex] = {
@@ -188,7 +203,8 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
           configItemId: item.configItemId,
           materialSource: item.materialSource || 'customer',
           deliveryStatus: item.deliveryStatus || 'pending',
-          statusChangeDate: item.statusChangeDate
+          statusChangeDate: item.statusChangeDate,
+          internalNotes: item.internalNotes || '' // Include internal notes
         })),
         receivedItems: bill.receivedItems || [],
         notes: bill.notes || '',
@@ -253,12 +269,12 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
           <Text style={styles.overallStatusTitle}>Overall Delivery Status</Text>
           <Text style={styles.overallStatusSubtitle}>Auto-calculated from item statuses</Text>
         </View>
-        
+
         <View style={[styles.overallStatusBadge, { borderColor: statusConfig.color }]}>
-          <MaterialIcon 
-            name={statusConfig.icon} 
-            size={24} 
-            color={statusConfig.color} 
+          <MaterialIcon
+            name={statusConfig.icon}
+            size={24}
+            color={statusConfig.color}
           />
           <Text style={[styles.overallStatusText, { color: statusConfig.color }]}>
             {statusConfig.label}
@@ -274,9 +290,9 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
               { status: 'delivered', label: 'Delivered' }
             ].map((step, index) => {
               const isActive = bill.deliveryStatus === step.status;
-              const isPassed = ['delivered'].includes(bill.deliveryStatus || '') && 
-                              ['pending', 'in_progress', 'ready_for_delivery'].includes(step.status);
-              
+              const isPassed = ['delivered'].includes(bill.deliveryStatus || '') &&
+                ['pending', 'in_progress', 'ready_for_delivery'].includes(step.status);
+
               return (
                 <View key={step.status} style={styles.progressStep}>
                   <View style={[
@@ -318,7 +334,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
           {statuses.map((status) => {
             const isActive = currentStatus === status.value;
             const color = getDeliveryStatusColor(status.value);
-            
+
             return (
               <TouchableOpacity
                 key={status.value}
@@ -329,10 +345,10 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
                 onPress={() => onStatusChange(status.value)}
                 testID={`status-button-${status.value}`}
               >
-                <MaterialIcon 
-                  name={status.icon} 
-                  size={16} 
-                  color={isActive ? color : '#666'} 
+                <MaterialIcon
+                  name={status.icon}
+                  size={16}
+                  color={isActive ? color : '#666'}
                 />
                 <Text style={[
                   styles.statusButtonText,
@@ -357,7 +373,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
           <Text style={styles.sectionTitle}>Billing Items</Text>
           <Text style={styles.sectionSubtitle}>Update individual item delivery status</Text>
         </View>
-        
+
         {bill.items.map((item, index) => (
           <View key={item.id || index} style={styles.itemContainer}>
             <View style={styles.itemHeader}>
@@ -366,6 +382,21 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
                 {item.description && (
                   <Text style={styles.itemDescription}>{item.description}</Text>
                 )}
+
+                {/* Internal Notes */}
+                {item.internalNotes && item.internalNotes.trim() !== '' && (
+                  <View style={styles.internalNotesContainer}>
+                    <View style={styles.internalNotesHeader}>
+                      <MaterialIcon name="lock" size={12} color="#FF9500" />
+                      <Text style={styles.internalNotesLabel}>Staff Notes</Text>
+                      <Text style={styles.internalNotesPrivateLabel}>PRIVATE</Text>
+                    </View>
+                    <Text style={styles.internalNotesText} numberOfLines={2}>
+                      {item.internalNotes}
+                    </Text>
+                  </View>
+                )}
+
                 <View style={styles.itemDetails}>
                   <Text style={styles.itemDetail}>Qty: {item.quantity}</Text>
                   <Text style={styles.itemDetail}>₹{item.unitPrice.toFixed(2)}</Text>
@@ -373,10 +404,10 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
                 </View>
                 {item.materialSource && (
                   <View style={styles.materialSource}>
-                    <MaterialIcon 
-                      name={item.materialSource === 'customer' ? 'person' : 'business'} 
-                      size={12} 
-                      color="#666" 
+                    <MaterialIcon
+                      name={item.materialSource === 'customer' ? 'person' : 'business'}
+                      size={12}
+                      color="#666"
                     />
                     <Text style={styles.materialSourceText}>
                       {item.materialSource === 'customer' ? 'Customer Materials' : 'Our Materials'}
@@ -392,15 +423,15 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
                   </View>
                 )}
               </View>
-              
+
               <View style={[
                 styles.currentStatusBadge,
                 { backgroundColor: getDeliveryStatusColor(item.deliveryStatus || 'pending') + '20' }
               ]}>
-                <MaterialIcon 
-                  name={getStatusIcon(item.deliveryStatus || 'pending')} 
-                  size={14} 
-                  color={getDeliveryStatusColor(item.deliveryStatus || 'pending')} 
+                <MaterialIcon
+                  name={getStatusIcon(item.deliveryStatus || 'pending')}
+                  size={14}
+                  color={getDeliveryStatusColor(item.deliveryStatus || 'pending')}
                 />
                 <Text style={[
                   styles.currentStatusText,
@@ -434,7 +465,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
       <View style={styles.receivedStatusButtons}>
         {statuses.map((status) => {
           const isActive = currentStatus === status.value;
-          
+
           return (
             <TouchableOpacity
               key={status.value}
@@ -445,10 +476,10 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
               onPress={() => onStatusChange(status.value)}
               testID={`received-status-button-${status.value}`}
             >
-              <MaterialIcon 
-                name={status.icon} 
-                size={16} 
-                color={isActive ? status.color : '#666'} 
+              <MaterialIcon
+                name={status.icon}
+                size={16}
+                color={isActive ? status.color : '#666'}
               />
               <Text style={[
                 styles.receivedStatusButtonText,
@@ -472,7 +503,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
           <Text style={styles.sectionTitle}>Received Items</Text>
           <Text style={styles.sectionSubtitle}>Update status of items received from customer</Text>
         </View>
-        
+
         {bill.receivedItems.map((item, index) => (
           <View key={item.id || index} style={styles.receivedItemContainer}>
             <View style={styles.receivedItemHeader}>
@@ -502,15 +533,15 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
                   )}
                 </View>
               </View>
-              
+
               <View style={[
                 styles.currentReceivedStatusBadge,
                 { backgroundColor: item.status === 'received' ? '#34C759' : '#FF9500' }
               ]}>
-                <MaterialIcon 
-                  name={item.status === 'received' ? 'check-circle' : 'undo'} 
-                  size={14} 
-                  color="#FFFFFF" 
+                <MaterialIcon
+                  name={item.status === 'received' ? 'check-circle' : 'undo'}
+                  size={14}
+                  color="#FFFFFF"
                 />
                 <Text style={styles.currentReceivedStatusText}>
                   {item.status === 'received' ? 'Received' : 'Returned'}
@@ -716,6 +747,41 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     color: '#666',
     marginBottom: 8,
     lineHeight: 20,
+  },
+  internalNotesContainer: {
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#FF9500',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 8,
+  },
+  internalNotesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 6,
+  },
+  internalNotesLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: isDarkMode ? '#FFF' : '#000',
+    flex: 1,
+  },
+  internalNotesPrivateLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FF3B30',
+    backgroundColor: isDarkMode ? '#3A3A3C' : '#FFFFFF',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  internalNotesText: {
+    fontSize: 12,
+    color: isDarkMode ? '#E5E5E7' : '#333333',
+    lineHeight: 16,
   },
   itemDetails: {
     flexDirection: 'row',

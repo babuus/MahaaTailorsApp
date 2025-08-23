@@ -27,6 +27,7 @@ interface BillItem {
     configItemId?: string;
     materialSource?: string;
     deliveryStatus: string;
+    internalNotes?: string; // Add internal notes support
     createdAt: number;
     updatedAt: number;
 }
@@ -94,6 +95,7 @@ const BillingItemsScreen: React.FC<BillingItemsScreenProps> = ({ navigation }) =
         return (
             item.name.toLowerCase().includes(query) ||
             item.description?.toLowerCase().includes(query) ||
+            item.internalNotes?.toLowerCase().includes(query) ||
             item.billId.toLowerCase().includes(query)
         );
     });
@@ -183,6 +185,22 @@ const BillingItemsScreen: React.FC<BillingItemsScreenProps> = ({ navigation }) =
                 <Text style={[styles.itemDescription, { color: isDarkMode ? COLORS.TEXT_DARK_SECONDARY : COLORS.TEXT_SECONDARY }]}>
                     {item.description}
                 </Text>
+            )}
+
+            {/* Internal Notes */}
+            {item.internalNotes && item.internalNotes.trim() !== '' && (
+                <View style={styles.internalNotesContainer}>
+                    <View style={styles.internalNotesHeader}>
+                        <MaterialIcon name="lock" size={14} color="#FF9500" />
+                        <Text style={[styles.internalNotesLabel, { color: isDarkMode ? COLORS.TEXT_DARK_PRIMARY : COLORS.TEXT_PRIMARY }]}>
+                            Staff Notes
+                        </Text>
+                        <Text style={styles.internalNotesPrivateLabel}>PRIVATE</Text>
+                    </View>
+                    <Text style={[styles.internalNotesText, { color: isDarkMode ? COLORS.TEXT_DARK_SECONDARY : COLORS.TEXT_SECONDARY }]} numberOfLines={2}>
+                        {item.internalNotes}
+                    </Text>
+                </View>
             )}
 
             <View style={styles.itemDetails}>
@@ -368,7 +386,7 @@ const BillingItemsScreen: React.FC<BillingItemsScreenProps> = ({ navigation }) =
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView 
+                        <ScrollView
                             style={styles.modalContent}
                             contentContainerStyle={styles.modalContentContainer}
                             showsVerticalScrollIndicator={true}
@@ -641,12 +659,13 @@ const styles = StyleSheet.create({
         fontSize: 18,
         fontWeight: '600',
         flex: 1,
-        marginRight: SPACING.SM,
+        marginRight: SPACING.LG,
     },
     statusBadge: {
-        paddingHorizontal: SPACING.SM,
-        paddingVertical: 4,
+        paddingHorizontal: SPACING.MD,
+        paddingVertical: SPACING.XS,
         borderRadius: 12,
+        marginLeft: SPACING.MD,
     },
     statusText: {
         color: COLORS.LIGHT,
@@ -657,6 +676,39 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginBottom: SPACING.MD,
         lineHeight: 20,
+    },
+    internalNotesContainer: {
+        backgroundColor: '#FFF8E1',
+        borderWidth: 1,
+        borderColor: '#FF9500',
+        borderRadius: 8,
+        padding: SPACING.SM,
+        marginBottom: SPACING.MD,
+    },
+    internalNotesHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 6,
+        gap: 6,
+    },
+    internalNotesLabel: {
+        fontSize: 13,
+        fontWeight: '600',
+        flex: 1,
+    },
+    internalNotesPrivateLabel: {
+        fontSize: 9,
+        fontWeight: '700',
+        color: '#FF3B30',
+        backgroundColor: '#FFFFFF',
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        borderRadius: 3,
+        overflow: 'hidden',
+    },
+    internalNotesText: {
+        fontSize: 13,
+        lineHeight: 18,
     },
     itemDetails: {
         gap: SPACING.XS,
