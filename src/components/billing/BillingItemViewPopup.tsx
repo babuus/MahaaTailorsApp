@@ -37,10 +37,10 @@ const BillingItemViewPopup: React.FC<BillingItemViewPopupProps> = ({
   const [updateMessage, setUpdateMessage] = useState<string>('');
 
   const deliveryStatusOptions: { key: DeliveryStatus; label: string; color: string }[] = [
-    { key: 'pending', label: 'Pending', color: '#FF9500' },
+    { key: 'pending', label: 'Pending', color: '#007AFF' },
     { key: 'in_progress', label: 'In Progress', color: '#007AFF' },
-    { key: 'ready_for_delivery', label: 'Ready', color: '#34C759' },
-    { key: 'delivered', label: 'Delivered', color: '#30D158' },
+    { key: 'ready_for_delivery', label: 'Ready', color: '#007AFF' },
+    { key: 'delivered', label: 'Delivered', color: '#007AFF' },
   ];
 
   const getDeliveryStatusInfo = (status: DeliveryStatus) => {
@@ -142,12 +142,9 @@ const BillingItemViewPopup: React.FC<BillingItemViewPopupProps> = ({
             <MaterialIcon 
               name={item.type === 'configured' ? 'settings' : 'edit'} 
               size={14} 
-              color={item.type === 'configured' ? '#007AFF' : '#34C759'} 
+              color="#666" 
             />
-            <Text style={[
-              styles.itemTypeText,
-              { color: item.type === 'configured' ? '#007AFF' : '#34C759' }
-            ]}>
+            <Text style={styles.itemTypeText}>
               {item.type === 'configured' ? 'Template Item' : 'Custom Item'}
             </Text>
           </View>
@@ -175,7 +172,7 @@ const BillingItemViewPopup: React.FC<BillingItemViewPopupProps> = ({
         {item.internalNotes && item.internalNotes.trim() !== '' && (
           <View style={styles.section}>
             <View style={styles.internalNotesHeader}>
-              <MaterialIcon name="lock" size={16} color="#FF9500" />
+              <MaterialIcon name="lock" size={16} color="#007AFF" />
               <Text style={styles.internalNotesLabel}>Staff Notes</Text>
               <Text style={styles.internalNotesPrivateLabel}>PRIVATE</Text>
             </View>
@@ -192,19 +189,13 @@ const BillingItemViewPopup: React.FC<BillingItemViewPopupProps> = ({
             {/* Material Source */}
             <View style={styles.statusItem}>
               <Text style={styles.statusItemLabel}>Material Source</Text>
-              <View style={[
-                styles.statusBadge,
-                { backgroundColor: item.materialSource === 'customer' ? '#007AFF20' : '#34C75920' }
-              ]}>
+              <View style={styles.statusBadge}>
                 <MaterialIcon 
                   name={item.materialSource === 'customer' ? 'person' : 'business-center'} 
                   size={16} 
-                  color={item.materialSource === 'customer' ? '#007AFF' : '#34C759'} 
+                  color="#666" 
                 />
-                <Text style={[
-                  styles.statusBadgeText,
-                  { color: item.materialSource === 'customer' ? '#007AFF' : '#34C759' }
-                ]}>
+                <Text style={styles.statusBadgeText}>
                   {item.materialSource === 'customer' ? 'Customer Provided' : 'Business Provided'}
                 </Text>
               </View>
@@ -231,19 +222,19 @@ const BillingItemViewPopup: React.FC<BillingItemViewPopupProps> = ({
                     <View style={[
                       styles.statusFeedback,
                       { 
-                        backgroundColor: updateStatus === 'success' ? '#34C75915' : '#FF3B3015',
-                        borderColor: updateStatus === 'success' ? '#34C759' : '#FF3B30'
+                        backgroundColor: updateStatus === 'success' ? '#007AFF15' : '#66666615',
+                        borderColor: updateStatus === 'success' ? '#007AFF' : '#666'
                       }
                     ]}>
                       <View style={styles.statusFeedbackContent}>
                         <MaterialIcon 
                           name={updateStatus === 'success' ? 'check-circle' : 'error'} 
                           size={20} 
-                          color={updateStatus === 'success' ? '#34C759' : '#FF3B30'} 
+                          color={updateStatus === 'success' ? '#007AFF' : '#666'} 
                         />
                         <Text style={[
                           styles.statusFeedbackText,
-                          { color: updateStatus === 'success' ? '#34C759' : '#FF3B30' }
+                          { color: updateStatus === 'success' ? '#007AFF' : '#666' }
                         ]}>
                           {updateMessage}
                         </Text>
@@ -442,6 +433,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
   itemTypeText: {
     fontSize: 14,
     fontWeight: '500',
+    color: isDarkMode ? '#999' : '#666',
   },
   descriptionText: {
     fontSize: 16,
@@ -461,31 +453,41 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
   },
   internalNotesLabel: {
     fontSize: 16,
-    fontWeight: '600',
-    color: isDarkMode ? '#FFF' : '#000',
+    fontWeight: '700',
+    color: '#007AFF',
     flex: 1,
+    letterSpacing: 0.5,
   },
   internalNotesPrivateLabel: {
     fontSize: 10,
-    fontWeight: '700',
-    color: '#FF3B30',
-    backgroundColor: isDarkMode ? '#3A3A3C' : '#FFFFFF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    backgroundColor: '#666',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     overflow: 'hidden',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
   },
   internalNotesContainer: {
-    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF5E6',
+    backgroundColor: isDarkMode ? '#1C1C1E' : '#F0F8FF',
     borderWidth: 1,
-    borderColor: '#FF9500',
+    borderColor: '#007AFF',
     padding: 16,
     borderRadius: 12,
+    shadowColor: '#007AFF',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDarkMode ? 0.2 : 0.1,
+    shadowRadius: 4,
+    elevation: 2,
   },
   internalNotesText: {
     fontSize: 15,
     color: isDarkMode ? '#E5E5E7' : '#333',
     lineHeight: 22,
+    fontWeight: '500',
+    fontStyle: 'italic',
   },
   notesContainer: {
     backgroundColor: isDarkMode ? '#2C2C2E' : '#F8F9FA',
@@ -576,10 +578,14 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     borderRadius: 12,
     gap: 8,
     alignSelf: 'flex-start',
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#F8F9FA',
+    borderWidth: 1,
+    borderColor: isDarkMode ? '#38383A' : '#E5E5EA',
   },
   statusBadgeText: {
     fontSize: 16,
     fontWeight: '600',
+    color: isDarkMode ? '#E5E5E7' : '#333',
   },
   statusChangeDate: {
     fontSize: 12,
@@ -620,13 +626,15 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#007AFF15',
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#F0F8FF',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#007AFF',
   },
   statusSelectorCard: {
-    backgroundColor: isDarkMode ? '#2C2C2E' : '#F8F9FA',
+    backgroundColor: isDarkMode ? '#1C1C1E' : '#FFFFFF',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
@@ -648,7 +656,9 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     minWidth: '45%',
     borderRadius: 12,
     padding: 12,
-    borderWidth: 1,
+    borderWidth: 2,
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#F8F9FA',
+    borderColor: isDarkMode ? '#38383A' : '#E5E5EA',
   },
   statusGridContent: {
     alignItems: 'center',
@@ -659,6 +669,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
+    color: isDarkMode ? '#FFF' : '#000',
   },
   selectedIndicator: {
     position: 'absolute',
@@ -670,6 +681,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: isDarkMode ? '#38383A' : '#E5E5EA',
+    backgroundColor: isDarkMode ? '#2C2C2E' : '#F8F9FA',
   },
   statusDisplayContent: {
     flexDirection: 'row',
@@ -682,6 +694,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#007AFF',
   },
   statusDisplayInfo: {
     flex: 1,
@@ -690,6 +703,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 2,
+    color: '#007AFF',
   },
   statusDisplaySubtext: {
     fontSize: 14,

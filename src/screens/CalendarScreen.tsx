@@ -75,6 +75,12 @@ export const CalendarScreen: React.FC<CalendarScreenProps> = ({ navigation }) =>
     const events: CalendarEvent[] = [];
     
     bills.forEach(bill => {
+      // Skip bills without customer data
+      if (!bill.customer?.personalDetails?.name) {
+        console.warn(`Bill ${bill.billNumber} missing customer data, skipping calendar events`);
+        return;
+      }
+
       // Add billing date event
       events.push({
         id: `billing-${bill.id}`,

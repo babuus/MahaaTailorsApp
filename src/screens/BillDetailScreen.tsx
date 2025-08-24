@@ -211,14 +211,8 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
   }, []);
 
   const getStatusColor = (status: BillStatus): string => {
-    switch (status) {
-      case 'fully_paid': return '#34C759';
-      case 'partially_paid': return '#FF9500';
-      case 'unpaid': return '#FF3B30';
-      case 'draft': return '#666';
-      case 'cancelled': return '#999';
-      default: return '#666';
-    }
+    // Use consistent primary blue color for all statuses
+    return '#007AFF';
   };
 
   const getStatusLabel = (status: BillStatus): string => {
@@ -233,14 +227,8 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
   };
 
   const getDeliveryStatusColor = (status: DeliveryStatus): string => {
-    switch (status) {
-      case 'pending': return '#FF9500';
-      case 'in_progress': return '#007AFF';
-      case 'ready_for_delivery': return '#34C759';
-      case 'delivered': return '#30D158';
-      case 'cancelled': return '#FF3B30';
-      default: return '#666';
-    }
+    // Use consistent primary blue color for all delivery statuses
+    return '#007AFF';
   };
 
   const getDeliveryStatusLabel = (status: DeliveryStatus): string => {
@@ -299,7 +287,7 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
         <View style={styles.billInfoGrid}>
           <ModernCard style={styles.infoCard}>
             <View style={styles.infoCardHeader}>
-              <MaterialIcon name="calendar-today" size={20} color="#007AFF" />
+              <MaterialIcon name="calendar-today" size={20} color="#666" />
               <Text style={styles.infoCardTitle}>Billing Date</Text>
             </View>
             <Text style={styles.infoCardValue}>
@@ -314,7 +302,7 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
 
           <ModernCard style={styles.infoCard}>
             <View style={styles.infoCardHeader}>
-              <MaterialIcon name="receipt" size={20} color="#34C759" />
+              <MaterialIcon name="receipt" size={20} color="#666" />
               <Text style={styles.infoCardTitle}>Delivery Date</Text>
             </View>
             <Text style={styles.infoCardValue}>
@@ -332,13 +320,13 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
               <MaterialIcon
                 name="receipt"
                 size={20}
-                color={getDeliveryStatusColor(bill.deliveryStatus)}
+                color="#666"
               />
               <Text style={styles.infoCardTitle}>Delivery Status</Text>
             </View>
             <Text style={[
               styles.infoCardValue,
-              { color: getDeliveryStatusColor(bill.deliveryStatus) }
+              { color: '#007AFF' }
             ]}>
               {getDeliveryStatusLabel(bill.deliveryStatus)}
             </Text>
@@ -346,7 +334,7 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
 
           <ModernCard style={styles.infoCard}>
             <View style={styles.infoCardHeader}>
-              <MaterialIcon name="money" size={20} color="#FF9500" />
+              <MaterialIcon name="money" size={20} color="#666" />
               <Text style={styles.infoCardTitle}>Total Amount</Text>
             </View>
             <Text style={styles.infoCardAmount}>
@@ -507,18 +495,7 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
                   </Text>
 
                   {/* Internal Notes */}
-                  {item.internalNotes && item.internalNotes.trim() !== '' && (
-                    <View style={styles.internalNotesContainer}>
-                      <View style={styles.internalNotesHeader}>
-                        <MaterialIcon name="lock" size={14} color="#FF9500" />
-                        <Text style={styles.internalNotesLabel}>Staff Notes</Text>
-                        <Text style={styles.internalNotesPrivateLabel}>PRIVATE</Text>
-                      </View>
-                      <Text style={styles.internalNotesText} numberOfLines={2}>
-                        {item.internalNotes}
-                      </Text>
-                    </View>
-                  )}
+
 
                   <View style={styles.itemCardDetails}>
                     <Text style={styles.itemCardQuantity}>{item.quantity} × ₹{item.unitPrice.toFixed(2)}</Text>
@@ -528,11 +505,11 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
                   <View style={styles.itemCardStatusTags}>
                     <View style={[
                       styles.statusBadgeSmall,
-                      { backgroundColor: item.materialSource === 'customer' ? '#007AFF20' : '#34C75920' }
+                      { backgroundColor: isDarkMode ? '#2C2C2E' : '#F8F9FA' }
                     ]}>
                       <Text style={[
                         styles.statusBadgeSmallText,
-                        { color: item.materialSource === 'customer' ? '#007AFF' : '#34C759' }
+                        { color: isDarkMode ? '#E5E5E7' : '#333' }
                       ]}>
                         {item.materialSource === 'customer' ? 'Customer' : 'Business'}
                       </Text>
@@ -540,11 +517,11 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
                     {item.deliveryStatus && (
                       <View style={[
                         styles.statusBadgeSmall,
-                        { backgroundColor: getDeliveryStatusColor(item.deliveryStatus) + '20' }
+                        { backgroundColor: '#007AFF20' }
                       ]}>
                         <Text style={[
                           styles.statusBadgeSmallText,
-                          { color: getDeliveryStatusColor(item.deliveryStatus) }
+                          { color: '#007AFF' }
                         ]}>
                           {getDeliveryStatusLabel(item.deliveryStatus)}
                         </Text>
@@ -582,7 +559,7 @@ export const BillDetailScreen: React.FC<BillDetailScreenProps> = ({
               <Text style={styles.itemName}>{item.name}</Text>
               <View style={[
                 styles.receivedStatusBadge,
-                { backgroundColor: item.status === 'received' ? '#34C759' : '#FF9500' }
+                { backgroundColor: '#007AFF' }
               ]}>
                 <Text style={styles.receivedStatusText}>
                   {item.status === 'received' ? 'Received' : 'Returned'}
@@ -1055,42 +1032,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     marginBottom: 12,
     lineHeight: 20,
   },
-  internalNotesContainer: {
-    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF8E1',
-    borderWidth: 1,
-    borderColor: '#FF9500',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
-  },
-  internalNotesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
-  },
-  internalNotesLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: isDarkMode ? '#FFF' : '#000',
-    flex: 1,
-  },
-  internalNotesPrivateLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#FF3B30',
-    backgroundColor: isDarkMode ? '#3A3A3C' : '#FFFFFF',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  internalNotesText: {
-    fontSize: 13,
-    color: isDarkMode ? '#E5E5E7' : '#333333',
-    lineHeight: 18,
-    lineHeight: 18,
-  },
+
   itemDetails: {
     gap: 8,
   },

@@ -10,6 +10,7 @@ import { DrawerNavigationProp } from '@react-navigation/drawer';
 import { RootDrawerParamList } from '../types';
 import { COLORS, SPACING, APP_VERSION, APP_NAME } from '../constants';
 import { useThemeContext } from '../contexts/ThemeContext';
+import { MaterialIcon } from '../components';
 
 type SettingsScreenNavigationProp = DrawerNavigationProp<
   RootDrawerParamList,
@@ -17,10 +18,12 @@ type SettingsScreenNavigationProp = DrawerNavigationProp<
 >;
 
 interface Props {
-  navigation: SettingsScreenNavigationProp;
+  navigation: SettingsScreenNavigationProp & {
+    navigate: (screen: string, params?: any) => void;
+  };
 }
 
-const SettingsScreen: React.FC<Props> = ({ navigation: _navigation }) => {
+const SettingsScreen: React.FC<Props> = ({ navigation }) => {
   const { themeMode, isDarkMode, setThemeMode } = useThemeContext();
 
   const containerStyle = {
@@ -46,11 +49,59 @@ const SettingsScreen: React.FC<Props> = ({ navigation: _navigation }) => {
     setThemeMode(themeId as 'light' | 'dark' | 'system');
   };
 
+  const handleNavigateToMeasurementConfig = () => {
+    navigation.navigate('MeasurementConfig');
+  };
+
+  const handleNavigateToBillingConfig = () => {
+    navigation.navigate('BillingConfig');
+  };
+
   return (
     <ScrollView style={[styles.container, containerStyle]}>
       <View style={styles.content}>
         <Text style={[styles.title, textStyle]}>Settings</Text>
         
+        {/* Configuration Section */}
+        <View style={[styles.section, cardStyle]}>
+          <Text style={[styles.sectionTitle, textStyle]}>Configuration</Text>
+          <Text style={[styles.sectionDescription, textStyle]}>
+            Manage your app configurations and templates
+          </Text>
+          
+          <TouchableOpacity
+            style={styles.configOption}
+            onPress={handleNavigateToMeasurementConfig}
+          >
+            <View style={styles.configIcon}>
+              <MaterialIcon name="straighten" size={24} color={COLORS.PRIMARY} />
+            </View>
+            <View style={styles.configInfo}>
+              <Text style={[styles.configName, textStyle]}>Measurement Config</Text>
+              <Text style={[styles.configDescription, textStyle]}>
+                Manage measurement templates for different garment types
+              </Text>
+            </View>
+            <MaterialIcon name="chevron-right" size={20} color={isDarkMode ? COLORS.LIGHT : COLORS.DARK} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.configOption}
+            onPress={handleNavigateToBillingConfig}
+          >
+            <View style={styles.configIcon}>
+              <MaterialIcon name="settings-applications" size={24} color={COLORS.PRIMARY} />
+            </View>
+            <View style={styles.configInfo}>
+              <Text style={[styles.configName, textStyle]}>Billing Config</Text>
+              <Text style={[styles.configDescription, textStyle]}>
+                Configure billing items and received item templates
+              </Text>
+            </View>
+            <MaterialIcon name="chevron-right" size={20} color={isDarkMode ? COLORS.LIGHT : COLORS.DARK} />
+          </TouchableOpacity>
+        </View>
+
         {/* Theme Section */}
         <View style={[styles.section, cardStyle]}>
           <Text style={[styles.sectionTitle, textStyle]}>Theme</Text>
@@ -187,6 +238,35 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 16,
     opacity: 0.7,
+  },
+  configOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.MD,
+    paddingHorizontal: SPACING.SM,
+    borderRadius: 8,
+    marginBottom: SPACING.SM,
+  },
+  configIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(33, 150, 243, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SPACING.MD,
+  },
+  configInfo: {
+    flex: 1,
+  },
+  configName: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  configDescription: {
+    fontSize: 14,
+    opacity: 0.6,
   },
 });
 

@@ -38,8 +38,8 @@ export interface ConflictResolution {
 class OfflineManager {
   private static instance: OfflineManager;
   private networkState: NetworkState = {
-    isConnected: false,
-    isInternetReachable: false,
+    isConnected: true, // Start optimistic, will be updated by NetInfo
+    isInternetReachable: true,
     type: 'unknown',
   };
   private syncInProgress = false;
@@ -63,6 +63,21 @@ class OfflineManager {
   }
 
   private initializeNetworkListener() {
+    // Get initial network state
+    NetInfo.fetch().then(state => {
+      const initialNetworkState: NetworkState = {
+        isConnected: state.isConnected || false,
+        isInternetReachable: state.isInternetReachable || false,
+        type: state.type || 'unknown',
+      };
+      
+      this.networkState = initialNetworkState;
+      this.notifyNetworkListeners(initialNetworkState);
+    }).catch(error => {
+      console.error('[OfflineManager] Error fetching initial network state:', error);
+    });
+
+    // Listen for network state changes
     NetInfo.addEventListener(state => {
       const newNetworkState: NetworkState = {
         isConnected: state.isConnected || false,
@@ -585,9 +600,8 @@ class OfflineManager {
 
   async getCachedMeasurementConfigs(): Promise<any[] | null> {
     try {
-      // For now, return empty array as measurement configs aren't part of OfflineData interface
-      // This can be extended later if needed
-      return [];
+      // Use the generic cache method for measurement configs
+      return await this.getCachedData<any[]>('measurement_configs');
     } catch (error) {
       console.error('Error getting cached measurement configs:', error);
       return null;
@@ -596,11 +610,47 @@ class OfflineManager {
 
   async cacheMeasurementConfigs(configs: any[]): Promise<void> {
     try {
-      // For now, do nothing as measurement configs aren't part of OfflineData interface
-      // This can be extended later if needed
-      console.log('Measurement configs caching not implemented yet');
+      // Use the generic cache method for measurement configs
+      await this.setCachedData('measurement_configs', configs);
     } catch (error) {
       console.error('Error caching measurement configs:', error);
+    }
+  }
+
+  // Generic cache methods for useOfflineData hook
+  async getCachedData<T>(key: string): Promise<T | null> {
+    try {
+      const data = await AsyncStorage.getItem(`@cache_${key}`);
+      return data ? JSON.parse(data) : null;
+    } catch (error) {
+      console.error(`Error getting cached data for key ${key}:`, error);
+      return null;
+    }
+  }
+
+  async setCachedData<T>(key: string, data: T): Promise<void> {
+    try {
+      await AsyncStorage.setItem(`@cache_${key}`, JSON.stringify(data));
+    } catch (error) {
+      console.error(`Error setting cached data for key ${key}:`, error);
+      throw error;
+    }
+  }
+
+  async queueAction(action: {
+    type: string;
+    payload: any;
+    timestamp: number;
+  }): Promise<void> {
+    try {
+      await this.addPendingAction({
+        type: action.type as any,
+        entity: 'bill', // Use a valid entity type
+        data: action.payload,
+      });
+    } catch (error) {
+      console.error('Error queuing action:', error);
+      throw error;
     }
   }
 

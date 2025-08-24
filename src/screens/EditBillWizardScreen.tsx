@@ -8,7 +8,9 @@ import {
   ScrollView,
   RefreshControl,
   TextInput,
+  Platform,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MaterialIcon from '../components/MaterialIcon';
 import { useThemeContext } from '../contexts/ThemeContext';
@@ -78,6 +80,10 @@ const EditBillWizardScreen: React.FC<EditBillWizardScreenProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [billingConfigItems, setBillingConfigItems] = useState<BillingConfigItem[]>([]);
   const [receivedItemTemplates, setReceivedItemTemplates] = useState<ReceivedItemTemplate[]>([]);
+  
+  // Date picker state
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerMode, setDatePickerMode] = useState<'billing' | 'delivery'>('billing');
 
   // Item editing state
   const [showItemPopup, setShowItemPopup] = useState(false);
@@ -480,18 +486,26 @@ const EditBillWizardScreen: React.FC<EditBillWizardScreenProps> = ({
           <View style={styles.twoColumnRow}>
             <View style={styles.columnItem}>
               <Text style={styles.columnLabel}>Billing Date</Text>
-              <TouchableOpacity style={styles.dateButton}>
+              <TouchableOpacity 
+                style={styles.dateButton}
+                onPress={() => openDatePicker('billing')}
+              >
                 <Text style={styles.dateButtonText}>
                   {wizardData.billingDate ? formatDate(wizardData.billingDate) : 'Not set'}
                 </Text>
+                <MaterialIcon name="calendar-today" size={16} color="#007AFF" />
               </TouchableOpacity>
             </View>
             <View style={styles.columnItem}>
               <Text style={styles.columnLabel}>Delivery Date</Text>
-              <TouchableOpacity style={styles.dateButton}>
+              <TouchableOpacity 
+                style={styles.dateButton}
+                onPress={() => openDatePicker('delivery')}
+              >
                 <Text style={styles.dateButtonText}>
                   {wizardData.deliveryDate ? formatDate(wizardData.deliveryDate) : 'Not set'}
                 </Text>
+                <MaterialIcon name="calendar-today" size={16} color="#007AFF" />
               </TouchableOpacity>
             </View>
           </View>
@@ -663,6 +677,33 @@ const EditBillWizardScreen: React.FC<EditBillWizardScreenProps> = ({
     });
   };
 
+  const openDatePicker = (mode: 'billing' | 'delivery') => {
+    setDatePickerMode(mode);
+    setShowDatePicker(true);
+  };
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    const currentDate = selectedDate || new Date();
+    
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+
+    if (event.type === 'set' && selectedDate) {
+      const dateString = selectedDate.toISOString();
+      
+      if (datePickerMode === 'billing') {
+        updateWizardData({ billingDate: dateString });
+      } else {
+        updateWizardData({ deliveryDate: dateString });
+      }
+    }
+    
+    if (Platform.OS === 'ios') {
+      setShowDatePicker(false);
+    }
+  };
+
   const styles = createStyles(isDarkMode);
 
   if (isLoading) {
@@ -703,6 +744,19 @@ const EditBillWizardScreen: React.FC<EditBillWizardScreenProps> = ({
         itemId={selectedItemIndex !== null ? (wizardData.billItems[selectedItemIndex] as any).id : undefined}
         defaultDeliveryStatus={wizardData.deliveryStatus}
       />
+
+      {/* Date Picker */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={datePickerMode === 'billing' 
+            ? (wizardData.billingDate ? new Date(wizardData.billingDate) : new Date())
+            : (wizardData.deliveryDate ? new Date(wizardData.deliveryDate) : new Date())
+          }
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={handleDateChange}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -850,6 +904,9 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: isDarkMode ? '#38383A' : '#E5E5EA',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   dateButtonText: {
     fontSize: 14,

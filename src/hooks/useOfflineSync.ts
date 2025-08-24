@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import OfflineManager, { SyncResult, NetworkState, ConflictResolution } from '../services/offlineManager';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import OfflineManager, { SyncResult, ConflictResolution } from '../services/offlineManager';
+import { NetworkState } from '../types';
 
 export interface OfflineSyncState {
   isOnline: boolean;
@@ -102,7 +103,7 @@ export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
         syncResult,
         lastSyncTimestamp: Date.now(),
       });
-      
+
       // Refresh pending changes status
       OfflineManager.hasPendingChanges().then(hasPendingChanges => {
         updateState({ hasPendingChanges });
@@ -128,25 +129,25 @@ export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
   }, [state.isSyncing, updateState]);
 
   const syncNow = useCallback(async (): Promise<SyncResult> => {
-    updateState({ 
-      isSyncing: true, 
-      syncResult: null, 
+    updateState({
+      isSyncing: true,
+      syncResult: null,
       lastSyncAttempt: new Date(),
-      syncErrors: [] 
+      syncErrors: []
     });
-    
+
     try {
       const result = await OfflineManager.syncPendingActions();
-      
+
       updateState({
         lastSuccessfulSync: result.success ? new Date() : state.lastSuccessfulSync,
         conflicts: result.conflicts,
         syncErrors: result.success ? [] : ['Sync completed with errors'],
       });
-      
+
       // Refresh data after sync
       await refreshOfflineData();
-      
+
       return result;
     } catch (error) {
       console.error('Error during manual sync:', error);
@@ -157,35 +158,35 @@ export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
         failedActions: [],
         conflicts: [],
       };
-      
-      updateState({ 
-        isSyncing: false, 
+
+      updateState({
+        isSyncing: false,
         syncResult: errorResult,
         syncErrors: [errorMessage]
       });
-      
+
       return errorResult;
     }
   }, [updateState, state.lastSuccessfulSync]);
 
   const forcSync = useCallback(async (): Promise<SyncResult> => {
     // Force sync even if already syncing
-    updateState({ 
-      isSyncing: true, 
+    updateState({
+      isSyncing: true,
       syncResult: null,
       lastSyncAttempt: new Date(),
       syncErrors: []
     });
-    
+
     try {
       const result = await OfflineManager.syncPendingActions();
-      
+
       updateState({
         lastSuccessfulSync: result.success ? new Date() : state.lastSuccessfulSync,
         conflicts: result.conflicts,
         syncErrors: result.success ? [] : ['Force sync completed with errors'],
       });
-      
+
       await refreshOfflineData();
       return result;
     } catch (error) {
@@ -197,13 +198,13 @@ export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
         failedActions: [],
         conflicts: [],
       };
-      
-      updateState({ 
-        isSyncing: false, 
+
+      updateState({
+        isSyncing: false,
         syncResult: errorResult,
         syncErrors: [errorMessage]
       });
-      
+
       return errorResult;
     }
   }, [updateState, state.lastSuccessfulSync]);
@@ -275,7 +276,7 @@ export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
       for (const conflict of state.conflicts) {
         await OfflineManager.resolveConflict(conflict, resolution);
       }
-      
+
       updateState({ conflicts: [] });
       await refreshOfflineData();
     } catch (error) {
@@ -326,6 +327,173 @@ export const useOfflineSync = (): OfflineSyncState & OfflineSyncActions => {
     getDataSize,
     resolveConflicts,
     refreshOfflineData,
+  };
+};
+
+// Hook for offline data fetching with caching
+export const useOfflineData = <T>(
+  key: string,
+  fetchFn: () => Promise<T>,
+  deps?: any[] | {
+    refetchOnMount?: boolean;
+    staleTime?: number;
+  }
+) => {
+  // Handle both array deps and options object for backward compatibility
+  const options = Array.isArray(deps) ? {} : deps;
+  const [data, setData] = useState<T | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const hasFetchedRef = useRef(false);
+
+  const fetchData = useCallback(async (isRefresh = false) => {
+    try {
+      if (isRefresh) {
+        setIsRefreshing(true);
+      } else {
+        setIsLoading(true);
+      }
+      setError(null);
+
+      // Try to get cached data first
+      const cachedData = await OfflineManager.getCachedData<T>(key);
+
+      if (cachedData && !isRefresh) {
+        setData(cachedData);
+        setIsLoading(false);
+        return; // Don't fetch fresh data in background to avoid re-render loops
+      }
+
+      // Fetch fresh data if online
+      if (OfflineManager.isOnline()) {
+        try {
+          const freshData = await fetchFn();
+          await OfflineManager.setCachedData(key, freshData);
+          setData(freshData);
+        } catch (err) {
+          // If fetch fails but we have cached data, use cached data
+          if (cachedData) {
+            setData(cachedData);
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        if (!cachedData) {
+          // No cached data and offline - set empty data instead of error for better UX
+          setData(null);
+        } else {
+          // Use cached data when offline
+          setData(cachedData);
+        }
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [key, fetchFn]);
+
+  const refresh = useCallback(() => {
+    return fetchData(true);
+  }, [fetchData]);
+
+  const refetch = useCallback(() => {
+    return fetchData(false);
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (options?.refetchOnMount !== false && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchData();
+    }
+  }, [key, fetchData]); // Include fetchData but use ref to prevent multiple calls
+
+  return {
+    data,
+    loading: isLoading, // Alias for backward compatibility
+    isLoading,
+    error,
+    isRefreshing,
+    isFromCache: data !== null && !isLoading, // Simple heuristic
+    lastUpdated: data ? new Date() : null, // Placeholder
+    refresh,
+    refetch,
+  };
+};
+
+// Hook for offline mutations with queuing
+export const useOfflineMutation = <TData, TVariables>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+  options?: {
+    entity?: string;
+    type?: string;
+    onSuccess?: (data: TData, variables: TVariables) => void;
+    onError?: (error: Error, variables: TVariables) => void;
+    onSettled?: (data: TData | undefined, error: Error | null, variables: TVariables) => void;
+    optimisticUpdate?: (variables: TVariables) => void;
+    rollbackUpdate?: () => void;
+  }
+) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const mutate = useCallback(async (variables: TVariables) => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      let result: TData;
+
+      if (OfflineManager.isOnline()) {
+        // Execute immediately if online
+        result = await mutationFn(variables);
+        options?.onSuccess?.(result, variables);
+      } else {
+        // Apply optimistic update if provided
+        options?.optimisticUpdate?.(variables);
+
+        // Queue for later execution if offline
+        await OfflineManager.queueAction({
+          type: options?.type || 'mutation',
+          payload: {
+            entity: options?.entity || 'unknown',
+            mutationFn: mutationFn.toString(),
+            variables
+          },
+          timestamp: Date.now(),
+        });
+
+        // Return a placeholder result for offline mutations
+        result = {} as TData;
+        options?.onSuccess?.(result, variables);
+      }
+
+      options?.onSettled?.(result, null, variables);
+      return result;
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error('Unknown mutation error');
+      setError(error);
+
+      // Rollback optimistic update on error
+      options?.rollbackUpdate?.();
+
+      options?.onError?.(error, variables);
+      options?.onSettled?.(undefined, error, variables);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [mutationFn, options]);
+
+  return {
+    mutate,
+    isLoading,
+    error,
   };
 };
 

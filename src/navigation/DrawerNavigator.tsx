@@ -92,16 +92,6 @@ const DrawerNavigator: React.FC = () => {
       icon: 'calendar-today',
     },
     {
-      key: 'MeasurementConfig' as Screen,
-      title: 'Measurement Config',
-      icon: 'straighten',
-    },
-    {
-      key: 'BillingConfig' as Screen,
-      title: 'Billing Config',
-      icon: 'settings-applications',
-    },
-    {
       key: 'Settings' as Screen,
       title: 'Settings',
       icon: 'settings',
@@ -269,7 +259,7 @@ const DrawerNavigator: React.FC = () => {
     performanceMonitor.startNavigation();
 
     const newNavigation: NavigationState = { screen, params };
-    const isMainScreen = ['Dashboard', 'CustomerManagement', 'Billing', 'BillingItems', 'Calendar', 'MeasurementConfig', 'BillingConfig', 'Settings'].includes(screen);
+    const isMainScreen = ['Dashboard', 'CustomerManagement', 'Billing', 'BillingItems', 'Calendar', 'Settings'].includes(screen);
     const isForwardNavigation = !isMainScreen;
 
     try {

@@ -384,18 +384,7 @@ export const ItemsManagementScreen: React.FC<ItemsManagementScreenProps> = ({
                 )}
 
                 {/* Internal Notes */}
-                {item.internalNotes && item.internalNotes.trim() !== '' && (
-                  <View style={styles.internalNotesContainer}>
-                    <View style={styles.internalNotesHeader}>
-                      <MaterialIcon name="lock" size={12} color="#FF9500" />
-                      <Text style={styles.internalNotesLabel}>Staff Notes</Text>
-                      <Text style={styles.internalNotesPrivateLabel}>PRIVATE</Text>
-                    </View>
-                    <Text style={styles.internalNotesText} numberOfLines={2}>
-                      {item.internalNotes}
-                    </Text>
-                  </View>
-                )}
+
 
                 <View style={styles.itemDetails}>
                   <Text style={styles.itemDetail}>Qty: {item.quantity}</Text>
@@ -748,41 +737,7 @@ const createStyles = (isDarkMode: boolean) => StyleSheet.create({
     marginBottom: 8,
     lineHeight: 20,
   },
-  internalNotesContainer: {
-    backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF8E1',
-    borderWidth: 1,
-    borderColor: '#FF9500',
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 8,
-  },
-  internalNotesHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
-    gap: 6,
-  },
-  internalNotesLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: isDarkMode ? '#FFF' : '#000',
-    flex: 1,
-  },
-  internalNotesPrivateLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#FF3B30',
-    backgroundColor: isDarkMode ? '#3A3A3C' : '#FFFFFF',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  internalNotesText: {
-    fontSize: 12,
-    color: isDarkMode ? '#E5E5E7' : '#333333',
-    lineHeight: 16,
-  },
+
   itemDetails: {
     flexDirection: 'row',
     gap: 12,

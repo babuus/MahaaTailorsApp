@@ -187,21 +187,7 @@ const BillingItemsScreen: React.FC<BillingItemsScreenProps> = ({ navigation }) =
                 </Text>
             )}
 
-            {/* Internal Notes */}
-            {item.internalNotes && item.internalNotes.trim() !== '' && (
-                <View style={styles.internalNotesContainer}>
-                    <View style={styles.internalNotesHeader}>
-                        <MaterialIcon name="lock" size={14} color="#FF9500" />
-                        <Text style={[styles.internalNotesLabel, { color: isDarkMode ? COLORS.TEXT_DARK_PRIMARY : COLORS.TEXT_PRIMARY }]}>
-                            Staff Notes
-                        </Text>
-                        <Text style={styles.internalNotesPrivateLabel}>PRIVATE</Text>
-                    </View>
-                    <Text style={[styles.internalNotesText, { color: isDarkMode ? COLORS.TEXT_DARK_SECONDARY : COLORS.TEXT_SECONDARY }]} numberOfLines={2}>
-                        {item.internalNotes}
-                    </Text>
-                </View>
-            )}
+
 
             <View style={styles.itemDetails}>
                 <View style={styles.detailRow}>
@@ -270,20 +256,8 @@ const BillingItemsScreen: React.FC<BillingItemsScreenProps> = ({ navigation }) =
     );
 
     const getStatusBadgeStyle = (status: string) => {
-        switch (status) {
-            case 'pending':
-                return { backgroundColor: COLORS.WARNING };
-            case 'in_progress':
-                return { backgroundColor: COLORS.INFO };
-            case 'ready_for_delivery':
-                return { backgroundColor: COLORS.SUCCESS };
-            case 'delivered':
-                return { backgroundColor: COLORS.SUCCESS };
-            case 'cancelled':
-                return { backgroundColor: COLORS.ERROR };
-            default:
-                return { backgroundColor: COLORS.TEXT_SECONDARY };
-        }
+        // Use consistent blue color for all statuses to follow design principles
+        return { backgroundColor: COLORS.PRIMARY };
     };
 
 
@@ -677,39 +651,7 @@ const styles = StyleSheet.create({
         marginBottom: SPACING.MD,
         lineHeight: 20,
     },
-    internalNotesContainer: {
-        backgroundColor: '#FFF8E1',
-        borderWidth: 1,
-        borderColor: '#FF9500',
-        borderRadius: 8,
-        padding: SPACING.SM,
-        marginBottom: SPACING.MD,
-    },
-    internalNotesHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 6,
-        gap: 6,
-    },
-    internalNotesLabel: {
-        fontSize: 13,
-        fontWeight: '600',
-        flex: 1,
-    },
-    internalNotesPrivateLabel: {
-        fontSize: 9,
-        fontWeight: '700',
-        color: '#FF3B30',
-        backgroundColor: '#FFFFFF',
-        paddingHorizontal: 4,
-        paddingVertical: 1,
-        borderRadius: 3,
-        overflow: 'hidden',
-    },
-    internalNotesText: {
-        fontSize: 13,
-        lineHeight: 18,
-    },
+
     itemDetails: {
         gap: SPACING.XS,
     },
